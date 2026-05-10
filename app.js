@@ -288,9 +288,13 @@ function renderCategory(container) {
 
     list.innerHTML = '';
     arts.forEach((art, i) => {
-      const lines   = (art.content || '').split('\n');
-      const title   = lines[0].trim() || '（タイトルなし）';
-      const preview = lines.slice(1).join(' ').trim().slice(0, 60) || '内容がありません';
+      // HTML or plain text → extract plain text for list display
+      const tmp2 = document.createElement('div');
+      tmp2.innerHTML = art.content || '';
+      const text = (tmp2.innerText || tmp2.textContent || '').trim();
+      const textLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const title   = textLines[0] || '（タイトルなし）';
+      const preview = textLines.slice(1).join(' ').slice(0, 60) || '内容がありません';
 
       const li = document.createElement('li');
       li.className = 'article-item';
@@ -313,7 +317,7 @@ async function createArticle() {
 }
 
 // ============================================
-//  SCREEN C: 記事エディター
+//  SCREEN C: 記事エディター（リッチ対応）
 // ============================================
 function renderEditor(container) {
   container.innerHTML = `
@@ -340,34 +344,115 @@ function renderEditor(container) {
           </button>
         </div>
       </header>
-      <textarea id="edTa" class="editor-textarea"
-        placeholder="1行目がタイトルになります&#10;&#10;2行目から本文を書いてください…"></textarea>
+      <div class="editor-toolbar">
+        <button class="toolbar-btn" id="btnImg">📷 画像を追加</button>
+        <input type="file" id="imgFile" accept="image/*" style="display:none" />
+      </div>
+      <div id="edContent" class="editor-content" contenteditable="true"
+        data-placeholder="1行目がタイトルになります
+
+2行目から本文を書いてください…"></div>
     </div>`;
 
   document.getElementById('btnBack').onclick   = () => goTo('category', state.categoryId);
   document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
 
-  // 初期コンテンツ読み込み（once で1回だけ）
+  // 📷 画像挿入
+  document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
+  document.getElementById('imgFile').onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const editor = document.getElementById('edContent');
+      if (!editor) return;
+      editor.focus();
+      const img = document.createElement('img');
+      img.src = ev.target.result;
+      img.className = 'inserted-img';
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const br = document.createElement('br');
+        range.insertNode(br);
+        range.insertNode(img);
+        range.setStartAfter(br);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        editor.appendChild(img);
+      }
+      editor.dispatchEvent(new Event('input'));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // \ud83d\udccb \u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u753b\u50cf\u8cbc\u308a\u4ed8\u3051\uff08PC: Ctrl+V\uff09
+  document.getElementById('edContent').addEventListener('paste', e => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const editor = document.getElementById('edContent');
+          if (!editor) return;
+          const img = document.createElement('img');
+          img.src = ev.target.result;
+          img.className = 'inserted-img';
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(img);
+            range.setStartAfter(img);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            editor.appendChild(img);
+          }
+          editor.dispatchEvent(new Event('input'));
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  });
+
+  // \u521d\u671f\u30b3\u30f3\u30c6\u30f3\u30c4\u8aad\u307f\u8fbc\u307f
   db.ref(`articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
-    const ta     = document.getElementById('edTa');
+    const editor = document.getElementById('edContent');
     const status = document.getElementById('saveStatus');
-    if (!ta) return;
+    if (!editor) return;
 
-    ta.value = snap.val()?.content || '';
+    const raw = snap.val()?.content || '';
+    // 旧データ（プレーンテキスト）との互換
+    if (raw && !raw.startsWith('<')) {
+      editor.innerHTML = raw.split('\n').map(l =>
+        `<p>${esc(l) || '<br>'}</p>`
+      ).join('');
+    } else {
+      editor.innerHTML = raw;
+    }
     if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
-
-    ta.focus();
-    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    editor.focus();
 
     // 自動保存（1秒デバウンス）
-    ta.oninput = () => {
+    editor.oninput = () => {
       if (status) { status.textContent = '編集中…'; status.className = 'save-status editing'; }
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
           await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
-            content: ta.value, updatedAt: Date.now()
+            content: editor.innerHTML, updatedAt: Date.now()
           });
           const s = document.getElementById('saveStatus');
           if (s) { s.textContent = '保存済み ✓'; s.className = 'save-status saved'; }
@@ -381,8 +466,10 @@ function renderEditor(container) {
 }
 
 async function deleteArticle() {
-  const ta    = document.getElementById('edTa');
-  const title = (ta?.value || '').split('\n')[0].trim() || '（タイトルなし）';
+  const editor = document.getElementById('edContent');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = editor?.innerHTML || '';
+  const title = (tmp.innerText || tmp.textContent || '').split('\n')[0].trim() || '（タイトルなし）';
   if (!confirm(`「${title}」を削除しますか？`)) return;
   await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
   goTo('category', state.categoryId);

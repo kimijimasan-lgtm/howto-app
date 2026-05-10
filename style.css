@@ -268,12 +268,35 @@ html, body {
 .save-status.editing { color: var(--text-sub); }
 .save-status.error  { color: var(--danger); }
 
-.editor-textarea {
+.editor-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-header);
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toolbar-btn:hover { background: var(--bg-card-hover); }
+
+.editor-content {
   flex: 1;
   width: 100%;
+  overflow-y: auto;
   background: transparent;
-  border: none;
-  resize: none;
   color: var(--text-primary);
   font-family: var(--font);
   font-size: 1rem;
@@ -282,13 +305,27 @@ html, body {
   outline: none;
   scrollbar-width: thin;
   scrollbar-color: var(--text-muted) transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.editor-textarea::placeholder { color: var(--text-muted); }
+.editor-content:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+  white-space: pre-line;
+}
+.editor-content p { margin: 0; min-height: 1.85em; }
 
-/* First-line "title" visual hint */
-.editor-textarea:not(:placeholder-shown) {
-  /* can't style first line only in plain textarea */
+/* 插入画像 */
+.editor-content img,
+.inserted-img {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 0.75rem 0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
 }
+
 
 /* ════════════════════════════
    Modal
