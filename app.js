@@ -156,7 +156,7 @@ function showCategoryModal(catId = null, currentName = '') {
         <h3>${catId ? 'カテゴリを編集' : '新しいカテゴリ'}</h3>
         <input id="catInput" class="modal-input" type="text"
                placeholder="カテゴリ名（例: 料理、IT）"
-               value="${esc(currentName)}" maxlength="10" />
+               value="${esc(currentName)}" maxlength="8" />
         <div class="modal-actions">
           ${catId ? `<button class="btn-danger"  id="mDel">削除</button>` : ''}
           <button class="btn-secondary" id="mCancel">キャンセル</button>
