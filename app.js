@@ -1,300 +1,399 @@
-// Initial Mock Data
-const MOCK_DATA = [
-    {
-        id: '1',
-        title: '美味しいコーヒーの淹れ方',
-        description: '自宅でカフェレベルのドリップコーヒーを楽しむための基本手順を解説します。',
-        date: new Date().toISOString(),
-        steps: [
-            { title: 'お湯を沸かす', description: '90度〜93度が最適です。沸騰直後のお湯は少し冷ましましょう。' },
-            { title: '豆を挽く', description: '中細挽きがおすすめです。淹れる直前に挽くことで香りが引き立ちます。' },
-            { title: '蒸らし', description: '粉全体にお湯を含ませ、30秒ほど待ちます。この工程が味の決め手になります。' },
-            { title: '抽出', description: '中心から「の」の字を描くようにお湯を注ぎます。3回ほどに分けて注ぎましょう。' }
-        ]
-    },
-    {
-        id: '2',
-        title: 'Gitの基本的な使い方',
-        description: 'バージョン管理システムGitの初期設定からコミットまでの流れ。',
-        date: new Date().toISOString(),
-        steps: [
-            { title: 'リポジトリの初期化', description: 'プロジェクトフォルダで `git init` コマンドを実行します。' },
-            { title: 'ファイルの追加', description: '`git add .` で変更されたファイルをステージングエリアに追加します。' },
-            { title: 'コミット', description: '`git commit -m "メッセージ"` で変更を記録します。' }
-        ]
-    }
+// ============================================
+//  ハウツー解説 v2 – app.js
+//  Firebase Realtime Database (CDN compat)
+// ============================================
+
+// ── Firebase 初期化 ──────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCWRY0dXtRqybI048q0btT-kW-rMnHfiW8",
+  authDomain: "torisetu-234c3.firebaseapp.com",
+  databaseURL: "https://torisetu-234c3-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "torisetu-234c3",
+  storageBucket: "torisetu-234c3.firebasestorage.app",
+  messagingSenderId: "1036476479724",
+  appId: "1:1036476479724:web:2996ecebe04f61bc448dc9",
+  measurementId: "G-V24PQM9NYD"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ── カラーパレット ────────────────────────────────────
+const COLORS = [
+  { label: 'パープル', grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)' },
+  { label: 'オレンジ', grad: 'linear-gradient(135deg,#f97316,#fb923c)' },
+  { label: 'グリーン', grad: 'linear-gradient(135deg,#10b981,#34d399)' },
+  { label: 'ブルー',   grad: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
+  { label: 'ピンク',   grad: 'linear-gradient(135deg,#ec4899,#f472b6)' },
+  { label: 'イエロー', grad: 'linear-gradient(135deg,#eab308,#facc15)' },
+  { label: 'レッド',   grad: 'linear-gradient(135deg,#ef4444,#f87171)' },
+  { label: 'ティール', grad: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
+  { label: 'インディゴ', grad: 'linear-gradient(135deg,#4f46e5,#818cf8)' },
+  { label: 'スレート', grad: 'linear-gradient(135deg,#64748b,#94a3b8)' },
 ];
+const DEFAULT_GRAD = COLORS[0].grad;
 
-// State Management
-class Store {
-    static getHowTos() {
-        const data = localStorage.getItem('howtos');
-        if (!data) {
-            localStorage.setItem('howtos', JSON.stringify(MOCK_DATA));
-            return MOCK_DATA;
-        }
-        return JSON.parse(data);
-    }
+// ── 状態管理 ─────────────────────────────────
+let state = { screen: 'home', categoryId: null, articleId: null };
+let listeners = [];   // Firebase off() 用
+let saveTimer  = null;
 
-    static getHowTo(id) {
-        const howtos = this.getHowTos();
-        return howtos.find(h => h.id === id);
-    }
+// ── 画面遷移 ─────────────────────────────────
+function goTo(screen, categoryId = null, articleId = null) {
+  // 前の画面のリスナーをすべて解除
+  listeners.forEach(fn => fn());
+  listeners = [];
+  if (saveTimer) clearTimeout(saveTimer);
 
-    static saveHowTo(howto) {
-        const howtos = this.getHowTos();
-        howtos.unshift(howto);
-        localStorage.setItem('howtos', JSON.stringify(howtos));
-    }
+  state = { screen, categoryId, articleId };
+
+  const app = document.getElementById('app');
+  app.classList.remove('visible');
+
+  setTimeout(() => {
+    app.innerHTML = '';
+    if (screen === 'home')     renderHome(app);
+    if (screen === 'category') renderCategory(app);
+    if (screen === 'editor')   renderEditor(app);
+    app.classList.add('visible');
+  }, 180);
 }
 
-// Router
-function router() {
-    const app = document.getElementById('app');
-    const hash = window.location.hash || '#home';
-    
-    // Smooth fade transition
-    app.style.opacity = 0;
-    setTimeout(() => {
-        app.innerHTML = '';
-        
-        if (hash === '#home') {
-            renderHome(app);
-        } else if (hash === '#create') {
-            renderCreate(app);
-        } else if (hash.startsWith('#detail/')) {
-            const id = hash.split('/')[1];
-            renderDetail(app, id);
-        } else {
-            renderHome(app);
-        }
-        
-        app.style.transition = 'opacity 0.3s ease';
-        app.style.opacity = 1;
-    }, 150);
-}
-
-window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', router);
-
-// Views
+// ============================================
+//  SCREEN A: ホーム（カテゴリグリッド）
+// ============================================
 function renderHome(container) {
-    const howtos = Store.getHowTos();
-    
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    header.innerHTML = `
-        <h1>共有されたハウツー</h1>
-        <p>みんなが投稿した役立つ手順や方法を見つけよう</p>
-    `;
-    
-    const grid = document.createElement('div');
-    grid.className = 'grid';
-    
-    if (howtos.length === 0) {
-        grid.innerHTML = `
-            <div class="empty-state" style="grid-column: 1 / -1">
-                <h2>まだ投稿がありません</h2>
-                <p>最初のハウツーを投稿してみましょう！</p>
-            </div>
-        `;
-    } else {
-        howtos.forEach(howto => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            const date = new Date(howto.date).toLocaleDateString('ja-JP');
-            card.innerHTML = `
-                <div class="card-title">${escapeHTML(howto.title)}</div>
-                <div class="card-desc">${escapeHTML(howto.description)}</div>
-                <div class="card-footer">
-                    <span>${howto.steps.length} ステップ</span>
-                    <span>${date}</span>
-                </div>
-            `;
-            card.onclick = () => window.location.hash = \`#detail/\${howto.id}\`;
-            grid.appendChild(card);
-        });
-    }
-    
-    container.appendChild(header);
-    container.appendChild(grid);
-}
+  container.innerHTML = `
+    <div class="screen-home">
+      <header class="app-header">
+        <h1 class="app-title">📋 ハウツー解説</h1>
+        <button class="btn-icon accent" id="btnAddCat" title="カテゴリを追加">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+      </header>
+      <div class="category-grid" id="catGrid">
+        <div class="loading-spinner">読み込み中…</div>
+      </div>
+    </div>`;
 
-function renderDetail(container, id) {
-    const howto = Store.getHowTo(id);
-    
-    if (!howto) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h2>見つかりません</h2>
-                <p>お探しのハウツーは存在しないか、削除されました。</p>
-                <br>
-                <a href="#home" class="btn btn-secondary">一覧へ戻る</a>
-            </div>
-        `;
-        return;
+  document.getElementById('btnAddCat').onclick = () => showCategoryModal();
+
+  const ref = db.ref('categories');
+  const handler = ref.on('value', snap => {
+    const grid = document.getElementById('catGrid');
+    if (!grid) return;
+
+    const data = snap.val();
+    if (!data) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-icon">📁</div>
+          <p>カテゴリがまだありません</p>
+          <button class="btn-primary" id="btnFirstCat">最初のカテゴリを作成</button>
+        </div>`;
+      document.getElementById('btnFirstCat').onclick = () => showCategoryModal();
+      return;
     }
 
-    const header = document.createElement('div');
-    header.className = 'detail-header';
-    header.innerHTML = `
-        <h1 class="detail-title">${escapeHTML(howto.title)}</h1>
-        <p class="detail-desc">${escapeHTML(howto.description)}</p>
-    `;
-    
-    const stepsContainer = document.createElement('div');
-    stepsContainer.className = 'steps-container';
-    
-    howto.steps.forEach((step, index) => {
-        const stepItem = document.createElement('div');
-        stepItem.className = 'step-item';
-        stepItem.innerHTML = `
-            <div class="step-number">${index + 1}</div>
-            <div class="step-content">
-                <h3 class="step-title">${escapeHTML(step.title)}</h3>
-                <p class="step-desc">${escapeHTML(step.description)}</p>
-            </div>
-        `;
-        stepsContainer.appendChild(stepItem);
+    const cats = Object.entries(data)
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    grid.innerHTML = '';
+    cats.forEach(cat => {
+      const grad = cat.color || DEFAULT_GRAD;
+      const card = document.createElement('div');
+      card.className = 'category-card';
+      card.style.background = grad;
+      card.innerHTML = `
+        <button class="cat-edit-btn" title="編集">✏️</button>
+        <span class="cat-name">${esc(cat.name)}</span>`;
+
+      // 短タップ → カテゴリへ
+      let longPressTimer = null;
+      let didLongPress  = false;
+
+      const startPress = () => {
+        didLongPress = false;
+        card.classList.add('pressing');
+        longPressTimer = setTimeout(() => {
+          didLongPress = true;
+          card.classList.remove('pressing');
+          showColorPicker(cat.id, grad);
+        }, 600);
+      };
+      const cancelPress = () => {
+        clearTimeout(longPressTimer);
+        card.classList.remove('pressing');
+      };
+
+      card.addEventListener('touchstart',  startPress,  { passive: true });
+      card.addEventListener('touchend',    cancelPress);
+      card.addEventListener('touchmove',   cancelPress);
+      card.addEventListener('contextmenu', e => { e.preventDefault(); showColorPicker(cat.id, grad); });
+
+      card.querySelector('.cat-edit-btn').onclick = e => {
+        e.stopPropagation();
+        showCategoryModal(cat.id, cat.name);
+      };
+      card.onclick = () => {
+        if (didLongPress) return;
+        goTo('category', cat.id);
+      };
+      grid.appendChild(card);
     });
-
-    const backBtnContainer = document.createElement('div');
-    backBtnContainer.style.textAlign = 'center';
-    backBtnContainer.style.marginTop = '4rem';
-    backBtnContainer.innerHTML = '<a href="#home" class="btn btn-secondary">一覧へ戻る</a>';
-    
-    container.appendChild(header);
-    container.appendChild(stepsContainer);
-    container.appendChild(backBtnContainer);
+  });
+  listeners.push(() => ref.off('value', handler));
 }
 
-function renderCreate(container) {
-    const formContainer = document.createElement('div');
-    formContainer.className = 'form-container';
-    
-    let stepsData = [{ title: '', description: '' }];
-    
-    const renderForm = () => {
-        formContainer.innerHTML = `
-            <h2 style="margin-bottom: 2rem; color: var(--primary-color);">新しいハウツーを投稿</h2>
-            <form id="createForm">
-                <div class="form-group">
-                    <label class="form-label">タイトル</label>
-                    <input type="text" id="howtoTitle" class="form-control" placeholder="例: 美味しいコーヒーの淹れ方" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">概要</label>
-                    <textarea id="howtoDesc" class="form-control" placeholder="このハウツーについて簡単に説明してください" required></textarea>
-                </div>
-                
-                <div class="steps-list" id="stepsList">
-                    <label class="form-label">手順 (ステップ)</label>
-                    <!-- Steps will be injected here -->
-                </div>
-                
-                <button type="button" id="addStepBtn" class="add-step-btn">+ 新しいステップを追加</button>
-                
-                <div class="form-actions">
-                    <a href="#home" class="btn btn-secondary">キャンセル</a>
-                    <button type="submit" class="btn btn-primary">投稿する</button>
-                </div>
-            </form>
-        `;
-        
-        const stepsList = formContainer.querySelector('#stepsList');
-        
-        // Render Steps
-        stepsData.forEach((step, index) => {
-            const stepEl = document.createElement('div');
-            stepEl.className = 'step-item-form';
-            stepEl.innerHTML = `
-                <div class="step-header-form">
-                    <strong>Step ${index + 1}</strong>
-                    ${stepsData.length > 1 ? `<button type="button" class="btn-icon remove-step" data-index="${index}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                    </button>` : ''}
-                </div>
-                <div class="form-group">
-                    <input type="text" class="form-control step-title-input" placeholder="見出し" value="${escapeHTML(step.title)}" required data-index="${index}">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <textarea class="form-control step-desc-input" placeholder="詳しい説明" required data-index="${index}">${escapeHTML(step.description)}</textarea>
-                </div>
-            `;
-            stepsList.appendChild(stepEl);
-        });
-        
-        // Bind Add Step
-        formContainer.querySelector('#addStepBtn').onclick = () => {
-            // Save current input values before re-rendering
-            saveCurrentInputs();
-            stepsData.push({ title: '', description: '' });
-            renderForm(); // Re-render to update UI
-        };
-        
-        // Bind Remove Step
-        formContainer.querySelectorAll('.remove-step').forEach(btn => {
-            btn.onclick = (e) => {
-                const index = parseInt(e.currentTarget.getAttribute('data-index'));
-                saveCurrentInputs();
-                stepsData.splice(index, 1);
-                renderForm();
-            };
-        });
-        
-        // Bind Form Submit
-        formContainer.querySelector('#createForm').onsubmit = (e) => {
-            e.preventDefault();
-            saveCurrentInputs();
-            
-            const newHowTo = {
-                id: Date.now().toString(),
-                title: formContainer.querySelector('#howtoTitle').value,
-                description: formContainer.querySelector('#howtoDesc').value,
-                date: new Date().toISOString(),
-                steps: stepsData
-            };
-            
-            Store.saveHowTo(newHowTo);
-            window.location.hash = '#home';
-        };
+// ── カテゴリ追加/編集モーダル ────────────────
+function showCategoryModal(catId = null, currentName = '') {
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" id="modal">
+      <div class="modal-box">
+        <h3>${catId ? 'カテゴリを編集' : '新しいカテゴリ'}</h3>
+        <input id="catInput" class="modal-input" type="text"
+               placeholder="カテゴリ名（例: 料理、IT）"
+               value="${esc(currentName)}" maxlength="10" />
+        <div class="modal-actions">
+          ${catId ? `<button class="btn-danger"  id="mDel">削除</button>` : ''}
+          <button class="btn-secondary" id="mCancel">キャンセル</button>
+          <button class="btn-primary"   id="mSave">${catId ? '保存' : '追加'}</button>
+        </div>
+      </div>
+    </div>`;
 
-        function saveCurrentInputs() {
-            // Persist Title/Desc
-            const titleInput = formContainer.querySelector('#howtoTitle');
-            const descInput = formContainer.querySelector('#howtoDesc');
-            if(titleInput) titleInput.setAttribute('value', titleInput.value);
-            if(descInput) descInput.textContent = descInput.value;
+  const input  = document.getElementById('catInput');
+  const close  = () => { document.getElementById('modal-root').innerHTML = ''; };
+  input.focus(); input.select();
 
-            // Persist Steps
-            const titleInputs = formContainer.querySelectorAll('.step-title-input');
-            const descInputs = formContainer.querySelectorAll('.step-desc-input');
-            
-            titleInputs.forEach(input => {
-                const idx = parseInt(input.getAttribute('data-index'));
-                if(stepsData[idx]) stepsData[idx].title = input.value;
-            });
-            descInputs.forEach(input => {
-                const idx = parseInt(input.getAttribute('data-index'));
-                if(stepsData[idx]) stepsData[idx].description = input.value;
-            });
-        }
+  document.getElementById('mCancel').onclick = close;
+  document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') close(); };
+
+  document.getElementById('mSave').onclick = async () => {
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    if (catId) {
+      await db.ref(`categories/${catId}`).update({ name });
+    } else {
+      await db.ref('categories').push({ name, order: Date.now(), createdAt: Date.now() });
+    }
+    close();
+  };
+
+  if (catId) {
+    document.getElementById('mDel').onclick = async () => {
+      if (!confirm(`「${currentName}」を削除します。\n中のメモもすべて消えます。よろしいですか？`)) return;
+      await db.ref(`categories/${catId}`).remove();
+      await db.ref(`articles/${catId}`).remove();
+      close();
     };
-    
-    container.appendChild(formContainer);
-    renderForm();
+  }
+
+  input.onkeydown = e => {
+    if (e.key === 'Enter') document.getElementById('mSave').click();
+    if (e.key === 'Escape') close();
+  };
 }
 
-// Utility for XSS prevention
-function escapeHTML(str) {
-    if (!str) return '';
-    return str.replace(/[&<>'"]/g, 
-        tag => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            "'": '&#39;',
-            '"': '&quot;'
-        }[tag])
-    );
+// ── カラーピッカーモーダル ────────────────────────────────
+function showColorPicker(catId, currentGrad) {
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" id="modal">
+      <div class="modal-box">
+        <h3>🎨 カラーを選択</h3>
+        <div class="color-grid" id="colorGrid"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="mCancel">キャンセル</button>
+        </div>
+      </div>
+    </div>`;
+
+  const grid = document.getElementById('colorGrid');
+  COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (c.grad === currentGrad ? ' selected' : '');
+    sw.style.background = c.grad;
+    sw.title = c.label;
+    sw.onclick = async () => {
+      await db.ref(`categories/${catId}`).update({ color: c.grad });
+      document.getElementById('modal-root').innerHTML = '';
+    };
+    grid.appendChild(sw);
+  });
+
+  const close = () => { document.getElementById('modal-root').innerHTML = ''; };
+  document.getElementById('mCancel').onclick = close;
+  document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') close(); };
 }
+
+// ============================================
+//  SCREEN B: カテゴリ内記事一覧
+// ============================================
+function renderCategory(container) {
+  container.innerHTML = `
+    <div class="screen-category">
+      <header class="app-header">
+        <button class="btn-icon" id="btnHome" title="ホームへ">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
+          </svg>
+        </button>
+        <h2 class="screen-title" id="catTitle">…</h2>
+        <button class="btn-icon accent" id="btnNewArt" title="新規メモ">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+      </header>
+      <ul class="article-list" id="artList">
+        <div class="loading-spinner">読み込み中…</div>
+      </ul>
+    </div>`;
+
+  document.getElementById('btnHome').onclick   = () => goTo('home');
+  document.getElementById('btnNewArt').onclick = () => createArticle();
+
+  // カテゴリ名
+  const cRef = db.ref(`categories/${state.categoryId}`);
+  const cHandler = cRef.on('value', snap => {
+    const el = document.getElementById('catTitle');
+    if (el && snap.val()) el.textContent = snap.val().name;
+  });
+  listeners.push(() => cRef.off('value', cHandler));
+
+  // 記事一覧
+  const aRef = db.ref(`articles/${state.categoryId}`);
+  const aHandler = aRef.on('value', snap => {
+    const list = document.getElementById('artList');
+    if (!list) return;
+    const data = snap.val();
+
+    if (!data) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📝</div>
+          <p>メモがまだありません</p>
+          <button class="btn-primary" id="btnFirstArt">最初のメモを作成</button>
+        </div>`;
+      document.getElementById('btnFirstArt').onclick = () => createArticle();
+      return;
+    }
+
+    const arts = Object.entries(data)
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    list.innerHTML = '';
+    arts.forEach((art, i) => {
+      const lines   = (art.content || '').split('\n');
+      const title   = lines[0].trim() || '（タイトルなし）';
+      const preview = lines.slice(1).join(' ').trim().slice(0, 60) || '内容がありません';
+
+      const li = document.createElement('li');
+      li.className = 'article-item';
+      li.style.animationDelay = `${i * 40}ms`;
+      li.innerHTML = `
+        <div class="article-title">${esc(title)}</div>
+        <div class="article-preview">${esc(preview)}</div>`;
+      li.onclick = () => goTo('editor', state.categoryId, art.id);
+      list.appendChild(li);
+    });
+  });
+  listeners.push(() => aRef.off('value', aHandler));
+}
+
+async function createArticle() {
+  const ref = await db.ref(`articles/${state.categoryId}`).push({
+    content: '', createdAt: Date.now(), updatedAt: Date.now()
+  });
+  goTo('editor', state.categoryId, ref.key);
+}
+
+// ============================================
+//  SCREEN C: 記事エディター
+// ============================================
+function renderEditor(container) {
+  container.innerHTML = `
+    <div class="screen-editor">
+      <header class="app-header editor-header">
+        <button class="btn-icon" id="btnBack" title="一覧へ戻る">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="save-status editing" id="saveStatus">読み込み中…</span>
+        <div class="editor-header-actions">
+          <button class="btn-icon" id="btnEdHome" title="ホームへ">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
+            </svg>
+          </button>
+          <button class="btn-icon danger" id="btnDel" title="削除">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <textarea id="edTa" class="editor-textarea"
+        placeholder="1行目がタイトルになります&#10;&#10;2行目から本文を書いてください…"></textarea>
+    </div>`;
+
+  document.getElementById('btnBack').onclick   = () => goTo('category', state.categoryId);
+  document.getElementById('btnEdHome').onclick = () => goTo('home');
+  document.getElementById('btnDel').onclick    = deleteArticle;
+
+  // 初期コンテンツ読み込み（once で1回だけ）
+  db.ref(`articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
+    const ta     = document.getElementById('edTa');
+    const status = document.getElementById('saveStatus');
+    if (!ta) return;
+
+    ta.value = snap.val()?.content || '';
+    if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
+
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+
+    // 自動保存（1秒デバウンス）
+    ta.oninput = () => {
+      if (status) { status.textContent = '編集中…'; status.className = 'save-status editing'; }
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        try {
+          await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+            content: ta.value, updatedAt: Date.now()
+          });
+          const s = document.getElementById('saveStatus');
+          if (s) { s.textContent = '保存済み ✓'; s.className = 'save-status saved'; }
+        } catch {
+          const s = document.getElementById('saveStatus');
+          if (s) { s.textContent = '保存失敗 ✗'; s.className = 'save-status error'; }
+        }
+      }, 1000);
+    };
+  });
+}
+
+async function deleteArticle() {
+  const ta    = document.getElementById('edTa');
+  const title = (ta?.value || '').split('\n')[0].trim() || '（タイトルなし）';
+  if (!confirm(`「${title}」を削除しますか？`)) return;
+  await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
+  goTo('category', state.categoryId);
+}
+
+// ── ユーティリティ ───────────────────────────
+function esc(str) {
+  return String(str || '').replace(/[&<>'"]/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c])
+  );
+}
+
+// ── 起動 ────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => goTo('home'));
