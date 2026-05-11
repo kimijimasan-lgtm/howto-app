@@ -39,9 +39,17 @@ let listeners   = [];   // Firebase off() 用
 let saveTimer   = null;
 let catSortable = null;
 let artSortable = null;
+let navHistory  = [];   // 画面履歴スタック
 
 // ── 画面遷移 ─────────────────────────────────
 function goTo(screen, categoryId = null, articleId = null) {
+  // 履歴管理
+  if (screen === 'home') {
+    navHistory = [];  // ホームへ戻ると履歴リセット
+  } else {
+    navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
+  }
+
   // 前の画面のリスナーをすべて解除
   listeners.forEach(fn => fn());
   listeners = [];
@@ -61,6 +69,28 @@ function goTo(screen, categoryId = null, articleId = null) {
   }, 180);
 }
 
+// ── 1つ前の画面へ戻る ────────────────────────
+function goBack() {
+  if (navHistory.length === 0) return;
+  const prev = navHistory.pop();
+
+  listeners.forEach(fn => fn());
+  listeners = [];
+  if (saveTimer) clearTimeout(saveTimer);
+
+  state = { screen: prev.screen, categoryId: prev.categoryId, articleId: prev.articleId };
+
+  const app = document.getElementById('app');
+  app.classList.remove('visible');
+  setTimeout(() => {
+    app.innerHTML = '';
+    if (state.screen === 'home')     renderHome(app);
+    if (state.screen === 'category') renderCategory(app);
+    if (state.screen === 'editor')   renderEditor(app);
+    app.classList.add('visible');
+  }, 180);
+}
+
 // ── 右スワイプで戻る ─────────────────────
 function addSwipeBack(el, onSwipe) {
   let sx = 0, sy = 0;
@@ -74,6 +104,7 @@ function addSwipeBack(el, onSwipe) {
     if (dx > 80 && dy < 80) onSwipe();
   }, { passive: true });
 }
+
 
 // ── HTML → 行配列（安全な改行認識） ──────────────
 function htmlToLines(html) {
@@ -283,7 +314,7 @@ function renderCategory(container) {
 
   document.getElementById('btnHome').onclick   = () => goTo('home');
   document.getElementById('btnNewArt').onclick = () => createArticle();
-  addSwipeBack(container, () => goTo('home'));
+  addSwipeBack(container, () => goBack());
 
   // カテゴリ名
   const cRef = db.ref(`categories/${state.categoryId}`);
@@ -407,10 +438,10 @@ function renderEditor(container) {
 2行目から本文を書いてください…"></div>
     </div>`;
 
-  document.getElementById('btnBack').onclick   = () => goTo('category', state.categoryId);
+  document.getElementById('btnBack').onclick   = () => goBack();
   document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
-  addSwipeBack(container, () => goTo('home'));
+  addSwipeBack(container, () => goBack());
 
   // 📷 画像挿入
   document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
