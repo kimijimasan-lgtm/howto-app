@@ -402,7 +402,7 @@ function renderEditor(container) {
   document.getElementById('btnBack').onclick   = () => goTo('category', state.categoryId);
   document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
-  addSwipeBack(container, () => goTo('category', state.categoryId));
+  addSwipeBack(container, () => goTo('home'));
 
   // 📷 画像挿入
   document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
