@@ -170,6 +170,7 @@ html, body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   animation: fadeUp 0.3s ease forwards;
