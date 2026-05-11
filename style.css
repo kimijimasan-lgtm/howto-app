@@ -402,6 +402,25 @@ html, body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
 
+/* ── Sortable drag styles ── */
+.sortable-ghost {
+  opacity: 0.35;
+  transform: scale(0.97);
+}
+.sortable-chosen {
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5) !important;
+  transform: scale(1.04);
+  z-index: 999;
+}
+.article-item.sortable-ghost {
+  background: var(--bg-card-hover);
+  opacity: 0.4;
+}
+.article-item.sortable-chosen {
+  background: var(--bg-card-hover);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+
 /* ════════════════════════════
    Shared utilities
    ════════════════════════════ */

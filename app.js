@@ -35,8 +35,10 @@ const DEFAULT_GRAD = COLORS[0].grad;
 
 // ── 状態管理 ─────────────────────────────────
 let state = { screen: 'home', categoryId: null, articleId: null };
-let listeners = [];   // Firebase off() 用
-let saveTimer  = null;
+let listeners   = [];   // Firebase off() 用
+let saveTimer   = null;
+let catSortable = null;
+let artSortable = null;
 
 // ── 画面遷移 ─────────────────────────────────
 function goTo(screen, categoryId = null, articleId = null) {
@@ -106,50 +108,46 @@ function renderHome(container) {
       const grad = cat.color || DEFAULT_GRAD;
       const card = document.createElement('div');
       card.className = 'category-card';
+      card.dataset.id = cat.id;
       card.style.background = grad;
       card.innerHTML = `
         <button class="cat-edit-btn" title="編集">✏️</button>
         <span class="cat-name">${esc(cat.name)}</span>`;
 
-      // 短タップ → カテゴリへ
-      let longPressTimer = null;
-      let didLongPress  = false;
-
-      const startPress = () => {
-        didLongPress = false;
-        card.classList.add('pressing');
-        longPressTimer = setTimeout(() => {
-          didLongPress = true;
-          card.classList.remove('pressing');
-          showColorPicker(cat.id, grad);
-        }, 600);
-      };
-      const cancelPress = () => {
-        clearTimeout(longPressTimer);
-        card.classList.remove('pressing');
-      };
-
-      card.addEventListener('touchstart',  startPress,  { passive: true });
-      card.addEventListener('touchend',    cancelPress);
-      card.addEventListener('touchmove',   cancelPress);
-      card.addEventListener('contextmenu', e => { e.preventDefault(); showColorPicker(cat.id, grad); });
-
       card.querySelector('.cat-edit-btn').onclick = e => {
         e.stopPropagation();
-        showCategoryModal(cat.id, cat.name);
+        showCategoryModal(cat.id, cat.name, cat.color || DEFAULT_GRAD);
       };
-      card.onclick = () => {
-        if (didLongPress) return;
-        goTo('category', cat.id);
-      };
+      card.onclick = () => goTo('category', cat.id);
       grid.appendChild(card);
     });
+
+    // ドラッグ並び替え初期化
+    if (window.Sortable) {
+      if (catSortable) catSortable.destroy();
+      catSortable = Sortable.create(grid, {
+        animation: 200,
+        delay: 400,
+        delayOnTouchOnly: true,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onEnd: async () => {
+          const cards = grid.querySelectorAll('.category-card');
+          const updates = {};
+          cards.forEach((c, i) => { updates[`categories/${c.dataset.id}/order`] = i; });
+          await db.ref().update(updates);
+        }
+      });
+    }
   });
-  listeners.push(() => ref.off('value', handler));
+  listeners.push(() => {
+    ref.off('value', handler);
+    if (catSortable) { catSortable.destroy(); catSortable = null; }
+  });
 }
 
 // ── カテゴリ追加/編集モーダル ────────────────
-function showCategoryModal(catId = null, currentName = '') {
+function showCategoryModal(catId = null, currentName = '', currentColor = null) {
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" id="modal">
       <div class="modal-box">
@@ -158,7 +156,8 @@ function showCategoryModal(catId = null, currentName = '') {
                placeholder="カテゴリ名（例: 料理、IT）"
                value="${esc(currentName)}" maxlength="8" />
         <div class="modal-actions">
-          ${catId ? `<button class="btn-danger"  id="mDel">削除</button>` : ''}
+          ${catId ? `<button class="btn-danger"    id="mDel">削除</button>` : ''}
+          ${catId ? `<button class="btn-secondary" id="mColor">🎨 色</button>` : ''}
           <button class="btn-secondary" id="mCancel">キャンセル</button>
           <button class="btn-primary"   id="mSave">${catId ? '保存' : '追加'}</button>
         </div>
@@ -189,6 +188,10 @@ function showCategoryModal(catId = null, currentName = '') {
       await db.ref(`categories/${catId}`).remove();
       await db.ref(`articles/${catId}`).remove();
       close();
+    };
+    document.getElementById('mColor').onclick = () => {
+      close();
+      showColorPicker(catId, currentColor || DEFAULT_GRAD);
     };
   }
 
@@ -284,7 +287,10 @@ function renderCategory(container) {
 
     const arts = Object.entries(data)
       .map(([id, v]) => ({ id, ...v }))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      .sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
 
     list.innerHTML = '';
     arts.forEach((art, i) => {
@@ -298,6 +304,7 @@ function renderCategory(container) {
 
       const li = document.createElement('li');
       li.className = 'article-item';
+      li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
       li.innerHTML = `
         <div class="article-title">${esc(title)}</div>
@@ -305,8 +312,31 @@ function renderCategory(container) {
       li.onclick = () => goTo('editor', state.categoryId, art.id);
       list.appendChild(li);
     });
+
+    // ドラッグ並び替え初期化
+    if (window.Sortable) {
+      if (artSortable) artSortable.destroy();
+      artSortable = Sortable.create(list, {
+        animation: 200,
+        delay: 400,
+        delayOnTouchOnly: true,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onEnd: async () => {
+          const items = list.querySelectorAll('.article-item');
+          const updates = {};
+          items.forEach((item, i) => {
+            updates[`articles/${state.categoryId}/${item.dataset.id}/order`] = i;
+          });
+          await db.ref().update(updates);
+        }
+      });
+    }
   });
-  listeners.push(() => aRef.off('value', aHandler));
+  listeners.push(() => {
+    aRef.off('value', aHandler);
+    if (artSortable) { artSortable.destroy(); artSortable = null; }
+  });
 }
 
 async function createArticle() {
