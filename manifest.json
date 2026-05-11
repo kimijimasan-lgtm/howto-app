@@ -1,0 +1,18 @@
+{
+  "name": "ハウツー解説",
+  "short_name": "ハウツー",
+  "description": "ハウツー・解説をカテゴリ別に管理するアプリ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
