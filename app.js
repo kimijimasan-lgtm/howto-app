@@ -61,6 +61,20 @@ function goTo(screen, categoryId = null, articleId = null) {
   }, 180);
 }
 
+// ── 右スワイプで戻る ─────────────────────
+function addSwipeBack(el, onSwipe) {
+  let sx = 0, sy = 0;
+  el.addEventListener('touchstart', e => {
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = Math.abs(e.changedTouches[0].clientY - sy);
+    if (dx > 80 && dy < 80) onSwipe();
+  }, { passive: true });
+}
+
 // ============================================
 //  SCREEN A: ホーム（カテゴリグリッド）
 // ============================================
@@ -258,6 +272,7 @@ function renderCategory(container) {
 
   document.getElementById('btnHome').onclick   = () => goTo('home');
   document.getElementById('btnNewArt').onclick = () => createArticle();
+  addSwipeBack(container, () => goTo('home'));
 
   // カテゴリ名
   const cRef = db.ref(`categories/${state.categoryId}`);
@@ -387,6 +402,7 @@ function renderEditor(container) {
   document.getElementById('btnBack').onclick   = () => goTo('category', state.categoryId);
   document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
+  addSwipeBack(container, () => goTo('category', state.categoryId));
 
   // 📷 画像挿入
   document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
