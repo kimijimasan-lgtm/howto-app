@@ -75,6 +75,17 @@ function addSwipeBack(el, onSwipe) {
   }, { passive: true });
 }
 
+// ── HTML → 行配列（安全な改行認識） ──────────────
+function htmlToLines(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = (html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi,   '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi,  '\n');
+  return (tmp.textContent || '').split('\n').map(l => l.trim()).filter(Boolean);
+}
+
 // ============================================
 //  SCREEN A: ホーム（カテゴリグリッド）
 // ============================================
@@ -309,11 +320,8 @@ function renderCategory(container) {
 
     list.innerHTML = '';
     arts.forEach((art, i) => {
-      // HTML or plain text → extract plain text for list display
-      const tmp2 = document.createElement('div');
-      tmp2.innerHTML = art.content || '';
-      const text = (tmp2.innerText || tmp2.textContent || '').trim();
-      const textLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      // HTML → 行分割（<p>や<br>を改行として扱う）
+      const textLines = htmlToLines(art.content);
       const title   = textLines[0] || '（タイトルなし）';
       const preview = textLines.slice(1).join(' ').slice(0, 60) || '内容がありません';
 
