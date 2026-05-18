@@ -450,40 +450,62 @@ function renderEditor(container) {
   document.getElementById('btnDel').onclick    = deleteArticle;
   addSwipeBack(container, () => goBack());
 
-  // 📷 画像挿入
+  // ── 画像圧縮（Canvas経由、最大800px・JPEG 75%） ────────────
+  function compressImage(src, maxW = 800, quality = 0.75) {
+    return new Promise(resolve => {
+      const imgEl = new Image();
+      imgEl.onload = () => {
+        let w = imgEl.width, h = imgEl.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(imgEl, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      imgEl.src = src;
+    });
+  }
+
+  // ── エディタに画像を挿入 ───────────────────────
+  function insertImageToEditor(src) {
+    const editor = document.getElementById('edContent');
+    if (!editor) return;
+    editor.focus();
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = 'inserted-img';
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const br = document.createElement('br');
+      range.insertNode(br);
+      range.insertNode(img);
+      range.setStartAfter(br);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      editor.appendChild(img);
+    }
+    editor.dispatchEvent(new Event('input'));
+  }
+
+  // 📷 画像挿入（ファイル選択）
   document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
   document.getElementById('imgFile').onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
-      const editor = document.getElementById('edContent');
-      if (!editor) return;
-      editor.focus();
-      const img = document.createElement('img');
-      img.src = ev.target.result;
-      img.className = 'inserted-img';
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount) {
-        const range = sel.getRangeAt(0);
-        range.deleteContents();
-        const br = document.createElement('br');
-        range.insertNode(br);
-        range.insertNode(img);
-        range.setStartAfter(br);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        editor.appendChild(img);
-      }
-      editor.dispatchEvent(new Event('input'));
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target.result);
+      insertImageToEditor(compressed);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  // \ud83d\udccb \u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u753b\u50cf\u8cbc\u308a\u4ed8\u3051\uff08PC: Ctrl+V\uff09
+  // 📋 クリップボードから画像貼り付け（PC: Ctrl+V）
   document.getElementById('edContent').addEventListener('paste', e => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -493,25 +515,9 @@ function renderEditor(container) {
         const file = item.getAsFile();
         if (!file) continue;
         const reader = new FileReader();
-        reader.onload = ev => {
-          const editor = document.getElementById('edContent');
-          if (!editor) return;
-          const img = document.createElement('img');
-          img.src = ev.target.result;
-          img.className = 'inserted-img';
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount) {
-            const range = sel.getRangeAt(0);
-            range.deleteContents();
-            range.insertNode(img);
-            range.setStartAfter(img);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          } else {
-            editor.appendChild(img);
-          }
-          editor.dispatchEvent(new Event('input'));
+        reader.onload = async ev => {
+          const compressed = await compressImage(ev.target.result);
+          insertImageToEditor(compressed);
         };
         reader.readAsDataURL(file);
         break;
