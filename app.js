@@ -94,15 +94,22 @@ function goBack() {
 // ── 右スワイプで戻る ─────────────────────
 function addSwipeBack(el, onSwipe) {
   let sx = 0, sy = 0;
-  el.addEventListener('touchstart', e => {
+  const onStart = e => {
     sx = e.touches[0].clientX;
     sy = e.touches[0].clientY;
-  }, { passive: true });
-  el.addEventListener('touchend', e => {
+  };
+  const onEnd = e => {
     const dx = e.changedTouches[0].clientX - sx;
     const dy = Math.abs(e.changedTouches[0].clientY - sy);
     if (dx > 80 && dy < 80) onSwipe();
-  }, { passive: true });
+  };
+  el.addEventListener('touchstart', onStart, { passive: true });
+  el.addEventListener('touchend',   onEnd,   { passive: true });
+  // 画面遷移時に必ず削除されるよう listeners に登録
+  listeners.push(() => {
+    el.removeEventListener('touchstart', onStart);
+    el.removeEventListener('touchend',   onEnd);
+  });
 }
 
 
