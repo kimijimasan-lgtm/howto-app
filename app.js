@@ -368,9 +368,58 @@ function renderCategory(container) {
       li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
       li.innerHTML = `
-        <div class="article-title">${esc(title)}</div>
-        <div class="article-preview">${esc(preview)}</div>`;
-      li.onclick = () => goTo('editor', state.categoryId, art.id);
+        <div class="article-inner">
+          <div class="article-title">${esc(title)}</div>
+          <div class="article-preview">${esc(preview)}</div>
+        </div>
+        <div class="swipe-actions">
+          <button class="swipe-action-btn swipe-action-move">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            移動
+          </button>
+          <button class="swipe-action-btn swipe-action-delete">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            削除
+          </button>
+        </div>`;
+
+      // カード本体タップ→エディター
+      li.querySelector('.article-inner').onclick = () => goTo('editor', state.categoryId, art.id);
+
+      // 移動ボタン
+      li.querySelector('.swipe-action-move').onclick = e => {
+        e.stopPropagation();
+        showMoveModal(art.id, state.categoryId);
+      };
+
+      // 削除ボタン
+      li.querySelector('.swipe-action-delete').onclick = e => {
+        e.stopPropagation();
+        deleteArticleById(art.id, state.categoryId);
+      };
+
+      // 左スワイプ検出
+      let txStart = 0, tyStart = 0;
+      li.addEventListener('touchstart', e => {
+        txStart = e.touches[0].clientX;
+        tyStart = e.touches[0].clientY;
+      }, { passive: true });
+      li.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - txStart;
+        const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
+        if (Math.abs(dx) > 50 && dy < 80) {
+          if (dx < 0) {
+            // 他を閉じてこれを開く
+            document.querySelectorAll('.article-item.swiped').forEach(el => {
+              if (el !== li) el.classList.remove('swiped');
+            });
+            li.classList.add('swiped');
+          } else {
+            li.classList.remove('swiped');
+          }
+        }
+      }, { passive: true });
+
       list.appendChild(li);
     });
 
@@ -398,6 +447,55 @@ function renderCategory(container) {
     aRef.off('value', aHandler);
     if (artSortable) { artSortable.destroy(); artSortable = null; }
   });
+}
+
+// カードを別カテゴリへ移動するモーダル
+async function showMoveModal(artId, currentCatId) {
+  const snap = await db.ref('categories').once('value');
+  const cats = snap.val();
+  if (!cats) return;
+  const others = Object.entries(cats)
+    .filter(([id]) => id !== currentCatId)
+    .map(([id, v]) => ({ id, name: v.name, color: v.color }));
+  if (others.length === 0) { alert('移動先のカテゴリがありません'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'move-modal-overlay';
+  overlay.innerHTML = `
+    <div class="move-modal">
+      <div class="move-modal-header">
+        <span>移動先を選択</span>
+        <button class="move-modal-close" id="moveCancelBtn">キャンセル</button>
+      </div>
+      <ul class="move-cat-list">
+        ${others.map(c => `
+          <li class="move-cat-item" data-cat-id="${c.id}"
+            style="border-left:4px solid ${c.color || '#6366f1'}">
+            ${esc(c.name || '（名前なし）')}
+          </li>`).join('')}
+      </ul>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#moveCancelBtn').onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelectorAll('.move-cat-item').forEach(item => {
+    item.onclick = async () => {
+      const destCatId = item.dataset.catId;
+      const artSnap = await db.ref(`articles/${currentCatId}/${artId}`).once('value');
+      const artData = artSnap.val();
+      if (!artData) { overlay.remove(); return; }
+      await db.ref(`articles/${destCatId}/${artId}`).set(artData);
+      await db.ref(`articles/${currentCatId}/${artId}`).remove();
+      overlay.remove();
+    };
+  });
+}
+
+// カードを削除
+async function deleteArticleById(artId, catId) {
+  await db.ref(`articles/${catId}/${artId}`).remove();
 }
 
 async function createArticle() {
