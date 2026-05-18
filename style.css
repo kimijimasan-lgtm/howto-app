@@ -28,13 +28,24 @@ html, body {
   overflow: hidden;
 }
 
+/* ── App wrapper（PC でもスマホ幅に固定） ── */
+body {
+  display: flex;
+  justify-content: center;
+  background: #060a0f; /* PC側の背景（周囲） */
+}
+
 /* ── App root ── */
 #app {
+  width: 100%;
+  max-width: 430px;
   height: 100dvh;
   overflow: hidden;
   opacity: 0;
   transform: translateY(10px);
   transition: opacity 0.2s ease, transform 0.2s ease;
+  background: var(--bg);
+  position: relative;
 }
 #app.visible {
   opacity: 1;
