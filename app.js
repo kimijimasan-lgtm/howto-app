@@ -670,23 +670,46 @@ function renderEditor(container) {
     if (!editor) return;
 
     const raw = snap.val()?.content || '';
-    // 旧データ（プレーンテキスト）との互換
-    if (raw && !raw.startsWith('<')) {
-      editor.innerHTML = raw.split('\n').map(l =>
-        `<p>${esc(l) || '<br>'}</p>`
-      ).join('');
+
+    // ── コンテンツをクリーンなHTMLに変換 ──────────────────
+    let displayHTML;
+    const isHTML = raw.trimStart().startsWith('<');
+
+    if (!isHTML) {
+      // プレーンテキスト or 破損（HTMLタグが文字として混入）
+      const decoded = raw
+        .replace(/<br\s*\/?>/gi,          '\n')   // <br>→改行
+        .replace(/<\/?(div|p|h\d|li)[^>]*>/gi, '\n') // ブロックタグ→改行
+        .replace(/<[^>]*>/g,              '')     // 残タグ除去
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); // エンティティ復元
+
+      const lines = decoded.split('\n')
+        .map(l => stripMarkdown(l.trim()))
+        .filter(l => l.length > 0);
+
+      displayHTML = lines.map(l => `<p>${esc(l)}</p>`).join('') || '<p><br></p>';
+      editor.innerHTML = displayHTML;
+
+      // 変換内容をFirebaseに保存（次回からHTMLとして正常ロード）
+      db.ref(`articles/${state.categoryId}/${state.articleId}`)
+        .update({ content: displayHTML, updatedAt: Date.now() })
+        .catch(() => {});
+
     } else {
+      // 正常なHTML：テキストノードのMarkdownだけ除去
       editor.innerHTML = raw;
+      const before = editor.innerHTML;
+      stripMarkdownFromDOM(editor);
+      const after = editor.innerHTML;
+      displayHTML = after;
+
+      if (after !== before) {
+        db.ref(`articles/${state.categoryId}/${state.articleId}`)
+          .update({ content: after, updatedAt: Date.now() })
+          .catch(() => {});
+      }
     }
-    // ロード時にMarkdownを除去（テキストノードのみ・画像は保持）
-    stripMarkdownFromDOM(editor);
-    const cleaned = editor.innerHTML;
-    // 変化があればFirebaseに上書き保存
-    if (cleaned !== raw) {
-      db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
-        content: cleaned, updatedAt: Date.now()
-      });
-    }
+
     if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
     editor.focus();
 
