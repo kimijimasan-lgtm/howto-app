@@ -143,6 +143,17 @@ function stripMarkdown(text) {
     .trim();
 }
 
+// ── DOMのテキストノードからMarkdownを除去（画像などは保持） ─────
+function stripMarkdownFromDOM(el) {
+  el.childNodes.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.textContent = stripMarkdown(node.textContent);
+    } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'IMG') {
+      stripMarkdownFromDOM(node);
+    }
+  });
+}
+
 // ============================================
 //  SCREEN A: ホーム（カテゴリグリッド）
 // ============================================
@@ -666,6 +677,15 @@ function renderEditor(container) {
       ).join('');
     } else {
       editor.innerHTML = raw;
+    }
+    // ロード時にMarkdownを除去（テキストノードのみ・画像は保持）
+    stripMarkdownFromDOM(editor);
+    const cleaned = editor.innerHTML;
+    // 変化があればFirebaseに上書き保存
+    if (cleaned !== raw) {
+      db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+        content: cleaned, updatedAt: Date.now()
+      });
     }
     if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
     editor.focus();
