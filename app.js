@@ -124,6 +124,25 @@ function htmlToLines(html) {
   return (tmp.textContent || '').split('\n').map(l => l.trim()).filter(Boolean);
 }
 
+// ── Markdown 記号を除去 ────────────────────────
+function stripMarkdown(text) {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')           // # 見出し
+    .replace(/\*\*(.*?)\*\*/g, '$1')        // **太字**
+    .replace(/__(.*?)__/g, '$1')            // __太字__
+    .replace(/\*(.*?)\*/g, '$1')            // *斜体*
+    .replace(/_(.*?)_/g, '$1')              // _斜体_
+    .replace(/~~(.*?)~~/g, '$1')            // ~~取り消し線~~
+    .replace(/`{3}[\s\S]*?`{3}/g, '')       // ```コードブロック```
+    .replace(/`([^`]+)`/g, '$1')            // `インライン`
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [リンク](url)→テキスト
+    .replace(/^>\s+/gm, '')                 // > 引用
+    .replace(/^[-*+]\s+/gm, '')             // - 箇条書き
+    .replace(/^\d+\.\s+/gm, '')             // 1. 番号リスト
+    .replace(/^[-*]{3,}\s*$/gm, '')         // --- 水平線
+    .trim();
+}
+
 // ============================================
 //  SCREEN A: ホーム（カテゴリグリッド）
 // ============================================
@@ -603,10 +622,12 @@ function renderEditor(container) {
     e.target.value = '';
   };
 
-  // 📋 クリップボードから画像貼り付け（PC: Ctrl+V）
+  // 📋 クリップボードから貼り付け（PC: Ctrl+V）
   document.getElementById('edContent').addEventListener('paste', e => {
     const items = e.clipboardData?.items;
     if (!items) return;
+
+    // 画像があれば優先処理（圧縮して挿入）
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
@@ -618,8 +639,16 @@ function renderEditor(container) {
           insertImageToEditor(compressed);
         };
         reader.readAsDataURL(file);
-        break;
+        return;
       }
+    }
+
+    // テキストの場合：Markdown記号を除去して挿入
+    const text = e.clipboardData.getData('text/plain');
+    if (text) {
+      e.preventDefault();
+      const clean = stripMarkdown(text);
+      document.execCommand('insertText', false, clean);
     }
   });
 
