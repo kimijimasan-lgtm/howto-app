@@ -442,7 +442,7 @@ body {
   border-radius: 16px;
   padding: 1.5rem;
   width: 100%;
-  max-width: 360px;
+  max-width: 400px;
 }
 
 .modal-box h3 {
@@ -474,8 +474,8 @@ body {
 /* ── Color picker ── */
 .color-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.6rem;
   margin-bottom: 1.25rem;
 }
 

@@ -18,18 +18,36 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// ── カラーパレット ────────────────────────────────────
+// ── カラーパレット（24色・白テキストとのコントラスト保証） ──────────
 const COLORS = [
-  { label: 'パープル', grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)' },
-  { label: 'オレンジ', grad: 'linear-gradient(135deg,#f97316,#fb923c)' },
-  { label: 'グリーン', grad: 'linear-gradient(135deg,#10b981,#34d399)' },
-  { label: 'ブルー',   grad: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
-  { label: 'ピンク',   grad: 'linear-gradient(135deg,#ec4899,#f472b6)' },
-  { label: 'イエロー', grad: 'linear-gradient(135deg,#eab308,#facc15)' },
-  { label: 'レッド',   grad: 'linear-gradient(135deg,#ef4444,#f87171)' },
-  { label: 'ティール', grad: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
-  { label: 'インディゴ', grad: 'linear-gradient(135deg,#4f46e5,#818cf8)' },
-  { label: 'スレート', grad: 'linear-gradient(135deg,#64748b,#94a3b8)' },
+  // ブルー系
+  { label: 'インディゴ',   grad: 'linear-gradient(135deg,#4f46e5,#6366f1)' },
+  { label: 'バイオレット', grad: 'linear-gradient(135deg,#7c3aed,#8b5cf6)' },
+  { label: 'ブルー',       grad: 'linear-gradient(135deg,#1d4ed8,#3b82f6)' },
+  { label: 'スカイ',       grad: 'linear-gradient(135deg,#0284c7,#0ea5e9)' },
+  { label: 'シアン',       grad: 'linear-gradient(135deg,#0891b2,#06b6d4)' },
+  { label: 'ネイビー',     grad: 'linear-gradient(135deg,#1e3a5f,#1e40af)' },
+  // グリーン系
+  { label: 'ティール',     grad: 'linear-gradient(135deg,#0d9488,#14b8a6)' },
+  { label: 'エメラルド',   grad: 'linear-gradient(135deg,#059669,#10b981)' },
+  { label: 'グリーン',     grad: 'linear-gradient(135deg,#16a34a,#22c55e)' },
+  { label: 'ライム',       grad: 'linear-gradient(135deg,#4d7c0f,#65a30d)' },
+  { label: 'フォレスト',   grad: 'linear-gradient(135deg,#14532d,#166534)' },
+  { label: 'オリーブ',     grad: 'linear-gradient(135deg,#713f12,#854d0e)' },
+  // レッド・ピンク・オレンジ系
+  { label: 'レッド',       grad: 'linear-gradient(135deg,#b91c1c,#ef4444)' },
+  { label: 'ローズ',       grad: 'linear-gradient(135deg,#9d174d,#db2777)' },
+  { label: 'ピンク',       grad: 'linear-gradient(135deg,#be185d,#ec4899)' },
+  { label: 'オレンジ',     grad: 'linear-gradient(135deg,#c2410c,#f97316)' },
+  { label: 'アンバー',     grad: 'linear-gradient(135deg,#b45309,#f59e0b)' },
+  { label: 'イエロー',     grad: 'linear-gradient(135deg,#a16207,#ca8a04)' },
+  // ダーク・ニュートラル系
+  { label: 'バーガンディ', grad: 'linear-gradient(135deg,#7f1d1d,#991b1b)' },
+  { label: 'ブラウン',     grad: 'linear-gradient(135deg,#431407,#7c2d12)' },
+  { label: 'スレート',     grad: 'linear-gradient(135deg,#334155,#64748b)' },
+  { label: 'グレー',       grad: 'linear-gradient(135deg,#374151,#6b7280)' },
+  { label: 'チャコール',   grad: 'linear-gradient(135deg,#111827,#374151)' },
+  { label: 'ブラック',     grad: 'linear-gradient(135deg,#030712,#1f2937)' },
 ];
 const DEFAULT_GRAD = COLORS[0].grad;
 
@@ -239,8 +257,10 @@ function renderHome(container) {
   });
 }
 
-// ── カテゴリ追加/編集モーダル ────────────────
+// ── カテゴリ追加/編集モーダル（色選択統合版） ────────────
 function showCategoryModal(catId = null, currentName = '', currentColor = null) {
+  let selectedGrad = currentColor || COLORS[0].grad;
+
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-overlay" id="modal">
       <div class="modal-box">
@@ -248,18 +268,33 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
         <input id="catInput" class="modal-input" type="text"
                placeholder="カテゴリ名（例: 料理、IT）"
                value="${esc(currentName)}" maxlength="8" />
+        <div class="color-grid" id="colorGrid"></div>
         <div class="modal-actions">
-          ${catId ? `<button class="btn-danger"    id="mDel">削除</button>` : ''}
-          ${catId ? `<button class="btn-secondary" id="mColor">🎨 色</button>` : ''}
+          ${catId ? `<button class="btn-danger" id="mDel">削除</button>` : ''}
           <button class="btn-secondary" id="mCancel">キャンセル</button>
           <button class="btn-primary"   id="mSave">${catId ? '保存' : '追加'}</button>
         </div>
       </div>
     </div>`;
 
-  const input  = document.getElementById('catInput');
-  const close  = () => { document.getElementById('modal-root').innerHTML = ''; };
+  const input = document.getElementById('catInput');
+  const grid  = document.getElementById('colorGrid');
+  const close = () => { document.getElementById('modal-root').innerHTML = ''; };
   input.focus(); input.select();
+
+  // 色スウォッチをグリッドに追加
+  COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (c.grad === selectedGrad ? ' selected' : '');
+    sw.style.background = c.grad;
+    sw.title = c.label;
+    sw.onclick = () => {
+      grid.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedGrad = c.grad;
+    };
+    grid.appendChild(sw);
+  });
 
   document.getElementById('mCancel').onclick = close;
   document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') close(); };
@@ -268,9 +303,11 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
     if (catId) {
-      await db.ref(`categories/${catId}`).update({ name });
+      await db.ref(`categories/${catId}`).update({ name, color: selectedGrad });
     } else {
-      await db.ref('categories').push({ name, order: Date.now(), createdAt: Date.now() });
+      await db.ref('categories').push({
+        name, color: selectedGrad, order: Date.now(), createdAt: Date.now()
+      });
     }
     close();
   };
@@ -282,47 +319,12 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
       await db.ref(`articles/${catId}`).remove();
       close();
     };
-    document.getElementById('mColor').onclick = () => {
-      close();
-      showColorPicker(catId, currentColor || DEFAULT_GRAD);
-    };
   }
 
   input.onkeydown = e => {
     if (e.key === 'Enter') document.getElementById('mSave').click();
     if (e.key === 'Escape') close();
   };
-}
-
-// ── カラーピッカーモーダル ────────────────────────────────
-function showColorPicker(catId, currentGrad) {
-  document.getElementById('modal-root').innerHTML = `
-    <div class="modal-overlay" id="modal">
-      <div class="modal-box">
-        <h3>🎨 カラーを選択</h3>
-        <div class="color-grid" id="colorGrid"></div>
-        <div class="modal-actions">
-          <button class="btn-secondary" id="mCancel">キャンセル</button>
-        </div>
-      </div>
-    </div>`;
-
-  const grid = document.getElementById('colorGrid');
-  COLORS.forEach(c => {
-    const sw = document.createElement('div');
-    sw.className = 'color-swatch' + (c.grad === currentGrad ? ' selected' : '');
-    sw.style.background = c.grad;
-    sw.title = c.label;
-    sw.onclick = async () => {
-      await db.ref(`categories/${catId}`).update({ color: c.grad });
-      document.getElementById('modal-root').innerHTML = '';
-    };
-    grid.appendChild(sw);
-  });
-
-  const close = () => { document.getElementById('modal-root').innerHTML = ''; };
-  document.getElementById('mCancel').onclick = close;
-  document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') close(); };
 }
 
 // ============================================
