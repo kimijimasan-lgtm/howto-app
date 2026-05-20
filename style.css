@@ -206,6 +206,30 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* ── スマホのみ 2列パネル式 ── */
+@media (max-width: 600px) {
+  .category-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    padding: 0.75rem;
+    align-content: start;
+    flex: 1;
+    overflow-y: auto;
+  }
+  .category-card {
+    height: auto;
+    aspect-ratio: 3 / 2;
+  }
+  .cat-name {
+    font-size: clamp(0.95rem, 5vw, 1.3rem);
+    padding: 0 0.75rem;
+    white-space: normal;
+    line-height: 1.2;
+    word-break: break-all;
+  }
+}
+
 .cat-edit-btn {
   position: absolute;
   top: 6px;
