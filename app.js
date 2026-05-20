@@ -734,11 +734,6 @@ function renderEditor(container) {
 }
 
 async function deleteArticle() {
-  const editor = document.getElementById('edContent');
-  const tmp = document.createElement('div');
-  tmp.innerHTML = editor?.innerHTML || '';
-  const title = (tmp.innerText || tmp.textContent || '').split('\n')[0].trim() || '（タイトルなし）';
-  if (!confirm(`「${title}」を削除しますか？`)) return;
   await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
   goTo('category', state.categoryId);
 }
