@@ -272,10 +272,18 @@ body {
 /* 内容ラッパー（左スワイプ時に左へスライド） */
 .article-inner {
   padding: 1rem 1.25rem;
-  transition: transform 0.25s ease;
+  transition: transform 0.25s ease, background 0.3s ease;
   transform: translateX(0);
   position: relative;
   z-index: 1;
+  border-radius: 0;
+}
+/* カテゴリ色が適用されたときのテキスト色 */
+.article-inner[style*="background"] .article-title {
+  color: #fff;
+}
+.article-inner[style*="background"] .article-preview {
+  color: rgba(255,255,255,0.75);
 }
 .article-item.swiped .article-inner { transform: translateX(-160px); }
 

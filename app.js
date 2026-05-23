@@ -355,11 +355,19 @@ function renderCategory(container) {
   document.getElementById('btnNewArt').onclick = () => createArticle();
   addSwipeBack(container, () => goBack());
 
-  // カテゴリ名
+  // カテゴリ名・色
+  let catColor = DEFAULT_GRAD;
   const cRef = db.ref(`categories/${state.categoryId}`);
   const cHandler = cRef.on('value', snap => {
-    const el = document.getElementById('catTitle');
-    if (el && snap.val()) el.textContent = snap.val().name;
+    const val = snap.val();
+    if (!val) return;
+    const titleEl = document.getElementById('catTitle');
+    if (titleEl) titleEl.textContent = val.name;
+    catColor = val.color || DEFAULT_GRAD;
+    // 既存の記事カードにも色を反映
+    document.querySelectorAll('.article-inner').forEach(el => {
+      el.style.background = catColor;
+    });
   });
   listeners.push(() => cRef.off('value', cHandler));
 
@@ -400,7 +408,7 @@ function renderCategory(container) {
       li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
       li.innerHTML = `
-        <div class="article-inner">
+        <div class="article-inner" style="background:${catColor}">
           <div class="article-title">${esc(title)}</div>
           <div class="article-preview">${esc(preview)}</div>
         </div>
