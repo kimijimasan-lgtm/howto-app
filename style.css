@@ -535,7 +535,6 @@ body {
 }
 .sortable-chosen {
   box-shadow: 0 8px 30px rgba(0,0,0,0.5) !important;
-  transform: scale(1.04);
   z-index: 999;
 }
 /* フローティングドラッグ（ホームのカテゴリパネル） */

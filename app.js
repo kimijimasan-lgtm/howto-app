@@ -286,7 +286,6 @@ function renderHome(container) {
         delayOnTouchOnly: true,
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        dragClass: 'sortable-drag-float',
         onStart: evt => {
           grid.style.overflow  = 'visible';
           const el = evt.item;
@@ -535,7 +534,6 @@ function renderCategory(container) {
         delayOnTouchOnly: true,
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        dragClass: 'sortable-drag-float',
         onStart: evt => {
           list.style.overflow  = 'visible';
           const el = evt.item;
