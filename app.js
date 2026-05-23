@@ -364,10 +364,9 @@ function renderCategory(container) {
     const titleEl = document.getElementById('catTitle');
     if (titleEl) titleEl.textContent = val.name;
     catColor = val.color || DEFAULT_GRAD;
-    // 既存の記事カードにも色を反映
-    document.querySelectorAll('.article-inner').forEach(el => {
-      el.style.background = catColor;
-    });
+    // article-listにCSS変数としてセット → CSSで自動継承
+    const artList = document.getElementById('artList');
+    if (artList) artList.style.setProperty('--cat-color', catColor);
   });
   listeners.push(() => cRef.off('value', cHandler));
 
@@ -408,7 +407,7 @@ function renderCategory(container) {
       li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
       li.innerHTML = `
-        <div class="article-inner" style="background:${catColor}">
+        <div class="article-inner">
           <div class="article-title">${esc(title)}</div>
           <div class="article-preview">${esc(preview)}</div>
         </div>

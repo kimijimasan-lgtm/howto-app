@@ -276,15 +276,10 @@ body {
   transform: translateX(0);
   position: relative;
   z-index: 1;
-  border-radius: 0;
+  background: var(--cat-color, var(--bg-card));
 }
-/* カテゴリ色が適用されたときのテキスト色 */
-.article-inner[style*="background"] .article-title {
-  color: #fff;
-}
-.article-inner[style*="background"] .article-preview {
-  color: rgba(255,255,255,0.75);
-}
+.article-inner .article-title   { color: #fff; }
+.article-inner .article-preview { color: rgba(255,255,255,0.72); }
 .article-item.swiped .article-inner { transform: translateX(-160px); }
 
 /* 左スワイプで現れるアクションボタン */
