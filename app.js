@@ -130,6 +130,50 @@ function addSwipeBack(el, onSwipe) {
   });
 }
 
+// ── プルダウンで新規メモ作成 ──────────────────────
+function addPullToCreate(el) {
+  const THRESHOLD = 80;
+  let startY = -1;
+  let indicator = null;
+
+  const mkIndicator = () => {
+    const d = document.createElement('div');
+    d.className = 'pull-indicator';
+    el.parentElement.insertBefore(d, el);
+    return d;
+  };
+
+  const onStart = e => {
+    startY = (el.scrollTop === 0) ? e.touches[0].clientY : -1;
+  };
+  const onMove = e => {
+    if (startY < 0) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { startY = -1; return; }
+    if (!indicator) indicator = mkIndicator();
+    const ratio = Math.min(dy / THRESHOLD, 1);
+    indicator.style.height  = `${Math.min(dy * 0.6, 48)}px`;
+    indicator.style.opacity = String(ratio);
+    indicator.textContent   = ratio >= 1 ? '✚ 離して新規メモ' : '↓ 引いて新規メモ';
+    indicator.classList.toggle('pull-ready', ratio >= 1);
+  };
+  const onEnd = e => {
+    if (startY < 0) return;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (indicator) { indicator.remove(); indicator = null; }
+    if (dy >= THRESHOLD) createArticle();
+    startY = -1;
+  };
+
+  el.addEventListener('touchstart', onStart, { passive: true });
+  el.addEventListener('touchmove',  onMove,  { passive: true });
+  el.addEventListener('touchend',   onEnd,   { passive: true });
+  listeners.push(() => {
+    el.removeEventListener('touchstart', onStart);
+    el.removeEventListener('touchmove',  onMove);
+    el.removeEventListener('touchend',   onEnd);
+  });
+}
 
 // ── HTML → 行配列（安全な改行認識） ──────────────
 function htmlToLines(html) {
@@ -242,6 +286,7 @@ function renderHome(container) {
         delayOnTouchOnly: true,
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag-float',
         onEnd: async () => {
           const cards = grid.querySelectorAll('.category-card');
           const updates = {};
@@ -354,6 +399,7 @@ function renderCategory(container) {
   document.getElementById('btnHome').onclick   = () => goTo('home');
   document.getElementById('btnNewArt').onclick = () => createArticle();
   addSwipeBack(container, () => goBack());
+  addPullToCreate(document.getElementById('artList'));
 
   // カテゴリ名・色
   let catColor = DEFAULT_GRAD;
@@ -471,6 +517,7 @@ function renderCategory(container) {
         delayOnTouchOnly: true,
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag-float',
         onEnd: async () => {
           const items = list.querySelectorAll('.article-item');
           const updates = {};
