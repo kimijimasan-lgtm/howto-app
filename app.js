@@ -288,15 +288,17 @@ function renderHome(container) {
         chosenClass: 'sortable-chosen',
         dragClass: 'sortable-drag-float',
         onStart: evt => {
+          grid.style.overflow  = 'visible';
           const el = evt.item;
           el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.18) rotate(5deg)';
-          el.style.boxShadow   = '0 40px 100px rgba(0,0,0,0.9), 0 16px 40px rgba(0,0,0,0.7), 0 0 0 3px rgba(255,255,255,0.35)';
-          el.style.filter      = 'brightness(1.35)';
+          el.style.transform   = 'scale(1.22) rotate(5deg)';
+          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
+          el.style.filter      = 'brightness(1.4)';
           el.style.zIndex      = '99999';
           el.style.opacity     = '1';
         },
         onEnd: async evt => {
+          grid.style.overflow  = '';
           const el = evt.item;
           el.style.transition  = '';
           el.style.transform   = '';
@@ -535,15 +537,17 @@ function renderCategory(container) {
         chosenClass: 'sortable-chosen',
         dragClass: 'sortable-drag-float',
         onStart: evt => {
+          list.style.overflow  = 'visible';
           const el = evt.item;
           el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.18) rotate(2deg)';
-          el.style.boxShadow   = '0 40px 100px rgba(0,0,0,0.9), 0 16px 40px rgba(0,0,0,0.7), 0 0 0 3px rgba(255,255,255,0.35)';
-          el.style.filter      = 'brightness(1.35)';
+          el.style.transform   = 'scale(1.22) rotate(2deg)';
+          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
+          el.style.filter      = 'brightness(1.4)';
           el.style.zIndex      = '99999';
           el.style.opacity     = '1';
         },
         onEnd: async evt => {
+          list.style.overflow  = '';
           const el = evt.item;
           el.style.transition  = '';
           el.style.transform   = '';
