@@ -532,6 +532,18 @@ body {
   transform: scale(1.04);
   z-index: 999;
 }
+/* フローティングドラッグ（ホームのカテゴリパネル） */
+.sortable-drag-float {
+  transform: scale(1.13) rotate(3deg) !important;
+  box-shadow:
+    0 32px 80px rgba(0,0,0,0.8),
+    0 8px 20px rgba(0,0,0,0.6) !important;
+  opacity: 1 !important;
+  filter: brightness(1.15) !important;
+  cursor: grabbing !important;
+  z-index: 9999 !important;
+  transition: none !important;
+}
 .article-item.sortable-ghost {
   background: var(--bg-card-hover);
   opacity: 0.4;
@@ -589,3 +601,22 @@ body {
 .article-item:nth-child(3) { animation-delay: 0.08s; }
 .article-item:nth-child(4) { animation-delay: 0.11s; }
 .article-item:nth-child(5) { animation-delay: 0.14s; }
+
+/* ── プルダウン新規メモ インジケーター ── */
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: transparent;
+  user-select: none;
+  pointer-events: none;
+  transition: color 0.15s;
+}
+.pull-indicator.pull-ready {
+  color: var(--accent);
+}
