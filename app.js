@@ -287,7 +287,23 @@ function renderHome(container) {
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         dragClass: 'sortable-drag-float',
-        onEnd: async () => {
+        onStart: evt => {
+          const el = evt.item;
+          el.style.transition  = 'none';
+          el.style.transform   = 'scale(1.18) rotate(5deg)';
+          el.style.boxShadow   = '0 40px 100px rgba(0,0,0,0.9), 0 16px 40px rgba(0,0,0,0.7), 0 0 0 3px rgba(255,255,255,0.35)';
+          el.style.filter      = 'brightness(1.35)';
+          el.style.zIndex      = '99999';
+          el.style.opacity     = '1';
+        },
+        onEnd: async evt => {
+          const el = evt.item;
+          el.style.transition  = '';
+          el.style.transform   = '';
+          el.style.boxShadow   = '';
+          el.style.filter      = '';
+          el.style.zIndex      = '';
+          el.style.opacity     = '';
           const cards = grid.querySelectorAll('.category-card');
           const updates = {};
           cards.forEach((c, i) => { updates[`categories/${c.dataset.id}/order`] = i; });
@@ -518,7 +534,23 @@ function renderCategory(container) {
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         dragClass: 'sortable-drag-float',
-        onEnd: async () => {
+        onStart: evt => {
+          const el = evt.item;
+          el.style.transition  = 'none';
+          el.style.transform   = 'scale(1.18) rotate(2deg)';
+          el.style.boxShadow   = '0 40px 100px rgba(0,0,0,0.9), 0 16px 40px rgba(0,0,0,0.7), 0 0 0 3px rgba(255,255,255,0.35)';
+          el.style.filter      = 'brightness(1.35)';
+          el.style.zIndex      = '99999';
+          el.style.opacity     = '1';
+        },
+        onEnd: async evt => {
+          const el = evt.item;
+          el.style.transition  = '';
+          el.style.transform   = '';
+          el.style.boxShadow   = '';
+          el.style.filter      = '';
+          el.style.zIndex      = '';
+          el.style.opacity     = '';
           const items = list.querySelectorAll('.article-item');
           const updates = {};
           items.forEach((item, i) => {
