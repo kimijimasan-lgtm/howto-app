@@ -278,14 +278,9 @@ body {
   z-index: 1;
   background: var(--cat-color, var(--bg-card));
 }
-/* 1つおきに同系色の淡い色（白オーバーレイで明るく） */
-.article-item:nth-child(even) .article-inner::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.18);
-  pointer-events: none;
-  z-index: 0;
+/* 1つおきに明るい同系色 */
+.article-item:nth-child(even) .article-inner {
+  filter: brightness(1.45);
 }
 .article-inner .article-title,
 .article-inner .article-preview { position: relative; z-index: 1; }

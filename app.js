@@ -291,7 +291,7 @@ function renderHome(container) {
           grid.style.overflow  = 'visible';
           const el = evt.item;
           el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.22) rotate(5deg)';
+          el.style.transform   = 'scale(1.22)';
           el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
           el.style.filter      = 'brightness(1.4)';
           el.style.zIndex      = '99999';
@@ -540,7 +540,7 @@ function renderCategory(container) {
           list.style.overflow  = 'visible';
           const el = evt.item;
           el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.22) rotate(2deg)';
+          el.style.transform   = 'scale(1.22)';
           el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
           el.style.filter      = 'brightness(1.4)';
           el.style.zIndex      = '99999';
