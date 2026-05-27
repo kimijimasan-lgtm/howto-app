@@ -219,7 +219,7 @@ body {
   font-weight: 800;
   color: #fff;
   text-align: center;
-  padding: 0 3rem;
+  padding: 0 0.5rem; /* 左右余白を狭めて文字が最大限多く入るように最適化 */
   text-shadow: 0 2px 8px rgba(0,0,0,0.5);
   white-space: normal;
   word-break: break-word;
@@ -229,6 +229,16 @@ body {
   position: relative;
   z-index: 2;
   transform: translateZ(15px); /* テキストをカード表面からさらに15px手前に浮かび上がらせる */
+
+  /* 縦画面（デフォルト）: 仮想文字数（全角1文字、半角0.5文字）に応じて自動縮小。最小0.75rem〜最大1.8rem */
+  font-size: clamp(0.75rem, calc(2.2rem - (var(--char-len, 2) - 2) * 0.16rem), 1.8rem);
+}
+
+/* スマホ横画面（landscape）または画面幅が600px以上のPC表示の時、文字をダイナミックに大きくスケーリング */
+@media (orientation: landscape) or (min-width: 600px) {
+  .cat-name {
+    font-size: clamp(1rem, calc(2.8rem - (var(--char-len, 2) - 2) * 0.2rem), 2.4rem);
+  }
 }
 
 /* ── スマホのみ 2列パネル式 ── */

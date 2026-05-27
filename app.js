@@ -269,15 +269,9 @@ function renderHome(container) {
         <button class="cat-edit-btn" title="編集">✏️</button>
         <span class="cat-name">${esc(cat.name)}</span>`;
 
-      // 文字数に応じてフォントサイズ自動調整（制限なし）
-      const nameEl = card.querySelector('.cat-name');
-      const len = cat.name.length;
-      // 2文字以下は2rem、そこから文字数が増えるごとに徐々に縮小。最小0.65rem
-      let fontSize = 2.0;
-      if (len > 2) {
-        fontSize = Math.max(0.65, 2.0 - (len - 2) * 0.15);
-      }
-      nameEl.style.fontSize = `${fontSize}rem`;
+      // 全角・半角の文字数をスマートに換算し、CSS変数としてセット（CSS側でレスポンシブ自動調整）
+      const vLen = getVirtualLength(cat.name);
+      card.style.setProperty('--char-len', vLen);
 
       card.querySelector('.cat-edit-btn').onclick = e => {
         e.stopPropagation();
@@ -291,15 +285,11 @@ function renderHome(container) {
     if (window.Sortable) {
       if (catSortable) catSortable.destroy();
       catSortable = Sortable.create(grid, {
-        animation: 200,                // アニメーション時間をスムーズに調整
-        delay: 300,                    // タッチ反応を300msに短縮しテンポ改善
+        animation: 150,
+        delay: 300,
         delayOnTouchOnly: true,
-        touchStartThreshold: 8,        // 8pxまでの指ブレを許容してキャンセルを防ぐ
-        forceFallback: true,
-        fallbackOnBody: true,          // クローンをbody直下に配置しスクロール等でのカクつきを完全排除
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        fallbackClass: 'sortable-fallback',
         onStart: () => { grid.style.overflow = 'visible'; },
         onEnd: async evt => {
           grid.style.overflow = '';
@@ -452,7 +442,7 @@ function renderCategory(container) {
     const arts = Object.entries(data)
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => {
-        if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+        if (a.order !== undefined && b.order !== undefined) return b.order - a.order; // 新規（order大）が上に来るよう降順ソート
         return (b.updatedAt || 0) - (a.updatedAt || 0);
       });
 
@@ -527,15 +517,11 @@ function renderCategory(container) {
     if (window.Sortable) {
       if (artSortable) artSortable.destroy();
       artSortable = Sortable.create(list, {
-        animation: 200,
-        delay: 300,                    // タッチ反応を300msに短縮しテンポ改善
+        animation: 150,
+        delay: 300,
         delayOnTouchOnly: true,
-        touchStartThreshold: 8,        // 8pxまでの指ブレを許容してキャンセルを防ぐ
-        forceFallback: true,
-        fallbackOnBody: true,          // クローンをbody直下に配置しスクロール等のガクつきを完全排除
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        fallbackClass: 'sortable-fallback',
         onStart: () => {
           list.style.overflow = 'visible';
         },
@@ -543,8 +529,10 @@ function renderCategory(container) {
           list.style.overflow = '';
           const items = list.querySelectorAll('.article-item');
           const updates = {};
+          const total = items.length;
           items.forEach((item, i) => {
-            updates[`articles/${state.categoryId}/${item.dataset.id}/order`] = i;
+            // 降順ソートに合わせて、上にあるものほど order を大きくする（total - i）
+            updates[`articles/${state.categoryId}/${item.dataset.id}/order`] = total - i;
           });
           await db.ref().update(updates);
         }
@@ -861,6 +849,18 @@ async function deleteArticle() {
 }
 
 // ── ユーティリティ ───────────────────────────
+function getVirtualLength(str) {
+  let len = 0;
+  for (let i = 0; i < (str || '').length; i++) {
+    if (str.charCodeAt(i) <= 127) {
+      len += 0.5;
+    } else {
+      len += 1.0;
+    }
+  }
+  return len;
+}
+
 function esc(str) {
   return String(str || '').replace(/[&<>'"]/g, c =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c])
