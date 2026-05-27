@@ -167,6 +167,7 @@ body {
   flex-direction: column;
   gap: 0.75rem;
   align-content: start;
+  perspective: 1200px; /* グリッド全体に奥行き空間を保証 */
 }
 
 .category-card {
@@ -179,14 +180,17 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  overflow: hidden;
-  /* 3D風の立体樹熱效果 */
+  transform-style: preserve-3d; /* 子要素（テキスト）の3D配置を可能に */
+  
+  /* リアルな物理3Dボタン表現 */
+  transform: perspective(800px) rotateX(6deg) translateY(-2px) translateZ(0);
   box-shadow:
-    0 2px 0 rgba(0,0,0,0.35),
-    0 6px 0 rgba(0,0,0,0.25),
-    0 10px 30px rgba(0,0,0,0.4);
-  transform: translateY(-3px);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+    inset 0 1px 0 rgba(255,255,255,0.25), /* 上端の強いインナーハイライト */
+    0 1px 0 rgba(255,255,255,0.15),       /* 上端の薄いハイライト */
+    0 4px 0 rgba(0,0,0,0.35),             /* 3Dボタンの側面（厚み） */
+    0 8px 24px rgba(0,0,0,0.5);            /* 地面に落とす影 */
+  
+  transition: transform 0.1s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.1s cubic-bezier(0.25, 0.8, 0.25, 1);
   animation: fadeUp 0.3s ease forwards;
   opacity: 0;
   user-select: none;
@@ -197,16 +201,18 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 55%);
+  background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 60%);
   pointer-events: none;
   border-radius: inherit;
   z-index: 1;
 }
 .category-card:active {
-  transform: translateY(0);
+  /* タップした時に実際にカチッと下に押し込まれる */
+  transform: perspective(800px) rotateX(2deg) translateY(2px) translateZ(0);
   box-shadow:
-    0 1px 0 rgba(0,0,0,0.35),
-    0 2px 10px rgba(0,0,0,0.3);
+    inset 0 1px 0 rgba(255,255,255,0.1),
+    0 1px 0 rgba(0,0,0,0.35),             /* 押し込まれたので厚み部分がほぼ消失 */
+    0 2px 10px rgba(0,0,0,0.4);           /* 影も薄く小さくなる */
 }
 
 .cat-name {
@@ -214,7 +220,7 @@ body {
   color: #fff;
   text-align: center;
   padding: 0 3rem;
-  text-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  text-shadow: 0 2px 8px rgba(0,0,0,0.5);
   white-space: normal;
   word-break: break-word;
   width: 100%;
@@ -222,6 +228,7 @@ body {
   line-height: 1.2;
   position: relative;
   z-index: 2;
+  transform: translateZ(15px); /* テキストをカード表面からさらに15px手前に浮かび上がらせる */
 }
 
 /* ── スマホのみ 2列パネル式 ── */
@@ -381,11 +388,8 @@ body {
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: 0.3rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   white-space: normal;
+  word-break: break-word;
 }
 
 .article-preview {

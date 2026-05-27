@@ -269,14 +269,15 @@ function renderHome(container) {
         <button class="cat-edit-btn" title="編集">✏️</button>
         <span class="cat-name">${esc(cat.name)}</span>`;
 
-      // 文字数に応じてフォントサイズ自動調整
+      // 文字数に応じてフォントサイズ自動調整（制限なし）
       const nameEl = card.querySelector('.cat-name');
       const len = cat.name.length;
-      nameEl.style.fontSize =
-        len <= 2 ? '2rem' :
-        len <= 4 ? '1.6rem' :
-        len <= 6 ? '1.25rem' :
-        len <= 8 ? '1rem' : '0.82rem';
+      // 2文字以下は2rem、そこから文字数が増えるごとに徐々に縮小。最小0.65rem
+      let fontSize = 2.0;
+      if (len > 2) {
+        fontSize = Math.max(0.65, 2.0 - (len - 2) * 0.15);
+      }
+      nameEl.style.fontSize = `${fontSize}rem`;
 
       card.querySelector('.cat-edit-btn').onclick = e => {
         e.stopPropagation();
@@ -290,10 +291,12 @@ function renderHome(container) {
     if (window.Sortable) {
       if (catSortable) catSortable.destroy();
       catSortable = Sortable.create(grid, {
-        animation: 150,
-        delay: 400,
+        animation: 200,                // アニメーション時間をスムーズに調整
+        delay: 300,                    // タッチ反応を300msに短縮しテンポ改善
         delayOnTouchOnly: true,
+        touchStartThreshold: 8,        // 8pxまでの指ブレを許容してキャンセルを防ぐ
         forceFallback: true,
+        fallbackOnBody: true,          // クローンをbody直下に配置しスクロール等でのカクつきを完全排除
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         fallbackClass: 'sortable-fallback',
@@ -324,7 +327,7 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
         <h3>${catId ? 'カテゴリを編集' : '新しいカテゴリ'}</h3>
         <input id="catInput" class="modal-input" type="text"
                placeholder="カテゴリ名（例: 料理、IT）"
-               value="${esc(currentName)}" maxlength="8" />
+               value="${esc(currentName)}" />
         <div class="color-grid" id="colorGrid"></div>
         <div class="modal-actions">
           ${catId ? `<button class="btn-danger" id="mDel">削除</button>` : ''}
@@ -525,27 +528,19 @@ function renderCategory(container) {
       if (artSortable) artSortable.destroy();
       artSortable = Sortable.create(list, {
         animation: 200,
-        delay: 400,
+        delay: 300,                    // タッチ反応を300msに短縮しテンポ改善
         delayOnTouchOnly: true,
+        touchStartThreshold: 8,        // 8pxまでの指ブレを許容してキャンセルを防ぐ
+        forceFallback: true,
+        fallbackOnBody: true,          // クローンをbody直下に配置しスクロール等のガクつきを完全排除
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        onStart: evt => {
-          list.style.overflow  = 'visible';
-          const el = evt.item;
-          el.style.transition  = 'none';
-          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.55)';
-          el.style.filter      = 'brightness(1.5)';
-          el.style.zIndex      = '99999';
-          el.style.opacity     = '1';
+        fallbackClass: 'sortable-fallback',
+        onStart: () => {
+          list.style.overflow = 'visible';
         },
         onEnd: async evt => {
-          list.style.overflow  = '';
-          const el = evt.item;
-          el.style.transition  = '';
-          el.style.boxShadow   = '';
-          el.style.filter      = '';
-          el.style.zIndex      = '';
-          el.style.opacity     = '';
+          list.style.overflow = '';
           const items = list.querySelectorAll('.article-item');
           const updates = {};
           items.forEach((item, i) => {
@@ -612,22 +607,31 @@ async function deleteArticleById(artId, catId) {
 }
 
 
-async function createArticle(noTransition = false) {
-  const ref = await db.ref(`articles/${state.categoryId}`).push({
+function createArticle(noTransition = false) {
+  // 通信を待たずにクライアント側で即座に一意なID（キー）を生成（遅延ゼロ）
+  const newRef = db.ref(`articles/${state.categoryId}`).push();
+  const newKey = newRef.key;
+
+  // バックグラウンドで初期データを保存（画面遷移を待たせない）
+  newRef.set({
     content: '', createdAt: Date.now(), updatedAt: Date.now(), order: Date.now()
-  });
+  }).catch(err => console.error(err));
+
   if (noTransition) {
-    // 一覧を経由せず直接エディターへ
+    // 一覧を経由せず、トランジションのディレイも完全にバイパスして即座にエディターを表示
     listeners.forEach(fn => fn());
     listeners = [];
     if (saveTimer) clearTimeout(saveTimer);
     navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
-    state = { screen: 'editor', categoryId: state.categoryId, articleId: ref.key };
+    state = { screen: 'editor', categoryId: state.categoryId, articleId: newKey };
+    
     const appEl = document.getElementById('app');
+    appEl.classList.remove('visible');
     appEl.innerHTML = '';
     renderEditor(appEl);
+    appEl.classList.add('visible'); // setTimeoutによる180ms遅延を完全に排除
   } else {
-    goTo('editor', state.categoryId, ref.key);
+    goTo('editor', state.categoryId, newKey);
   }
 }
 
@@ -730,7 +734,7 @@ function renderEditor(container) {
   };
 
   document.getElementById('edContent').addEventListener('paste', e => {
-    e.preventDefault(); // 常にデフォルト貼り付けを阻止（スタイル混入を防ぐ）
+    e.preventDefault(); // デフォルトの貼り付けを阻止
     const items = e.clipboardData?.items;
 
     // 画像があれば優先処理（圧縮して挿入）
@@ -750,7 +754,7 @@ function renderEditor(container) {
       }
     }
 
-    // テキスト：プレーンテキストのみ取得（HTMLスタイルを完全除去）
+    // テキスト：プレーンテキストとしてデータを取得（スタイルを完全除去）
     let text = e.clipboardData.getData('text/plain');
     if (!text) {
       const html = e.clipboardData.getData('text/html');
@@ -760,9 +764,24 @@ function renderEditor(container) {
         text = tmp.textContent || tmp.innerText || '';
       }
     }
+
     if (text) {
-      const clean = stripMarkdown(text);
-      document.execCommand('insertText', false, clean);
+      // 選択範囲に純粋なテキストノードを直接挿入（背景色やHTMLタグが混ざる余地を100%遮断）
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        sel.deleteFromDocument();
+        const range = sel.getRangeAt(0);
+        const textNode = document.createTextNode(text);
+        range.insertNode(textNode);
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        document.getElementById('edContent').appendChild(document.createTextNode(text));
+      }
+      // 自動保存を動かすためにinputイベントを発火
+      document.getElementById('edContent').dispatchEvent(new Event('input'));
     }
   });
 
