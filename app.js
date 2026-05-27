@@ -161,7 +161,7 @@ function addPullToCreate(el) {
     if (startY < 0) return;
     const dy = e.changedTouches[0].clientY - startY;
     if (indicator) { indicator.remove(); indicator = null; }
-    if (dy >= THRESHOLD) createArticle();
+    if (dy >= THRESHOLD) createArticle(true);
     startY = -1;
   };
 
@@ -223,7 +223,7 @@ function renderHome(container) {
   container.innerHTML = `
     <div class="screen-home">
       <header class="app-header">
-        <h1 class="app-title">📋 ハウツー解説</h1>
+        <h1 class="app-title">📋 PCスマホ連動メモ</h1>
         <button class="btn-icon accent" id="btnAddCat" title="カテゴリを追加">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -269,6 +269,15 @@ function renderHome(container) {
         <button class="cat-edit-btn" title="編集">✏️</button>
         <span class="cat-name">${esc(cat.name)}</span>`;
 
+      // 文字数に応じてフォントサイズ自動調整
+      const nameEl = card.querySelector('.cat-name');
+      const len = cat.name.length;
+      nameEl.style.fontSize =
+        len <= 2 ? '2rem' :
+        len <= 4 ? '1.6rem' :
+        len <= 6 ? '1.25rem' :
+        len <= 8 ? '1rem' : '0.82rem';
+
       card.querySelector('.cat-edit-btn').onclick = e => {
         e.stopPropagation();
         showCategoryModal(cat.id, cat.name, cat.color || DEFAULT_GRAD);
@@ -281,30 +290,16 @@ function renderHome(container) {
     if (window.Sortable) {
       if (catSortable) catSortable.destroy();
       catSortable = Sortable.create(grid, {
-        animation: 200,
+        animation: 150,
         delay: 400,
         delayOnTouchOnly: true,
+        forceFallback: true,
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
-        onStart: evt => {
-          grid.style.overflow  = 'visible';
-          const el = evt.item;
-          el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.22)';
-          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
-          el.style.filter      = 'brightness(1.4)';
-          el.style.zIndex      = '99999';
-          el.style.opacity     = '1';
-        },
+        fallbackClass: 'sortable-fallback',
+        onStart: () => { grid.style.overflow = 'visible'; },
         onEnd: async evt => {
-          grid.style.overflow  = '';
-          const el = evt.item;
-          el.style.transition  = '';
-          el.style.transform   = '';
-          el.style.boxShadow   = '';
-          el.style.filter      = '';
-          el.style.zIndex      = '';
-          el.style.opacity     = '';
+          grid.style.overflow = '';
           const cards = grid.querySelectorAll('.category-card');
           const updates = {};
           cards.forEach((c, i) => { updates[`categories/${c.dataset.id}/order`] = i; });
@@ -538,9 +533,8 @@ function renderCategory(container) {
           list.style.overflow  = 'visible';
           const el = evt.item;
           el.style.transition  = 'none';
-          el.style.transform   = 'scale(1.22)';
-          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.5)';
-          el.style.filter      = 'brightness(1.4)';
+          el.style.boxShadow   = '0 48px 100px rgba(0,0,0,0.95), 0 16px 40px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.55)';
+          el.style.filter      = 'brightness(1.5)';
           el.style.zIndex      = '99999';
           el.style.opacity     = '1';
         },
@@ -548,7 +542,6 @@ function renderCategory(container) {
           list.style.overflow  = '';
           const el = evt.item;
           el.style.transition  = '';
-          el.style.transform   = '';
           el.style.boxShadow   = '';
           el.style.filter      = '';
           el.style.zIndex      = '';
@@ -618,11 +611,24 @@ async function deleteArticleById(artId, catId) {
   await db.ref(`articles/${catId}/${artId}`).remove();
 }
 
-async function createArticle() {
+
+async function createArticle(noTransition = false) {
   const ref = await db.ref(`articles/${state.categoryId}`).push({
-    content: '', createdAt: Date.now(), updatedAt: Date.now()
+    content: '', createdAt: Date.now(), updatedAt: Date.now(), order: Date.now()
   });
-  goTo('editor', state.categoryId, ref.key);
+  if (noTransition) {
+    // 一覧を経由せず直接エディターへ
+    listeners.forEach(fn => fn());
+    listeners = [];
+    if (saveTimer) clearTimeout(saveTimer);
+    navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
+    state = { screen: 'editor', categoryId: state.categoryId, articleId: ref.key };
+    const appEl = document.getElementById('app');
+    appEl.innerHTML = '';
+    renderEditor(appEl);
+  } else {
+    goTo('editor', state.categoryId, ref.key);
+  }
 }
 
 // ============================================
@@ -723,31 +729,38 @@ function renderEditor(container) {
     e.target.value = '';
   };
 
-  // 📋 クリップボードから貼り付け（PC: Ctrl+V）
   document.getElementById('edContent').addEventListener('paste', e => {
+    e.preventDefault(); // 常にデフォルト貼り付けを阻止（スタイル混入を防ぐ）
     const items = e.clipboardData?.items;
-    if (!items) return;
 
     // 画像があれば優先処理（圧縮して挿入）
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
-        const reader = new FileReader();
-        reader.onload = async ev => {
-          const compressed = await compressImage(ev.target.result);
-          insertImageToEditor(compressed);
-        };
-        reader.readAsDataURL(file);
-        return;
+    if (items) {
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          const reader = new FileReader();
+          reader.onload = async ev => {
+            const compressed = await compressImage(ev.target.result);
+            insertImageToEditor(compressed);
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
       }
     }
 
-    // テキストの場合：Markdown記号を除去して挿入
-    const text = e.clipboardData.getData('text/plain');
+    // テキスト：プレーンテキストのみ取得（HTMLスタイルを完全除去）
+    let text = e.clipboardData.getData('text/plain');
+    if (!text) {
+      const html = e.clipboardData.getData('text/html');
+      if (html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        text = tmp.textContent || tmp.innerText || '';
+      }
+    }
     if (text) {
-      e.preventDefault();
       const clean = stripMarkdown(text);
       document.execCommand('insertText', false, clean);
     }

@@ -1,6 +1,6 @@
 {
-  "name": "ハウツー解説",
-  "short_name": "ハウツー",
+  "name": "PCスマホ連動メモ",
+  "short_name": "PC連動メモ",
   "description": "ハウツー・解説をカテゴリ別に管理するアプリ",
   "start_url": "/howto-app/",
   "scope": "/howto-app/",
