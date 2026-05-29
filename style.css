@@ -560,44 +560,42 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
 
-/* ── Sortable drag styles ── */
+/* ── Sortable drag styles（プレースホルダー方式） ── */
 .sortable-ghost {
-  opacity: 0.25 !important;
+  /* 移動先の位置を点線の空欄枠（プレースホルダー）として視覚的に示す */
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 2px dashed rgba(255, 255, 255, 0.18) !important;
+  box-shadow: none !important;
+  opacity: 0.65 !important;
+  border-radius: 16px !important;
 }
+.sortable-ghost * {
+  visibility: hidden !important; /* プレースホルダーの中身（文字等）を非表示にして完全な空欄化 */
+}
+
+/* ドラッグ元のアイテム：ドラッグ中、元の位置に薄く半透明で残るように見せる */
 .sortable-chosen {
+  opacity: 0.55 !important;
   z-index: 999;
 }
 
-/* カード一覧のドラッグ開始時：シンプルな選択表示 */
-.article-item.sortable-chosen {
-  background: var(--bg-card-hover);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-}
-
-/* カテゴリパネル（ホーム）のドラッグ開始時：3D遠近感を崩さず、縦の長さの1/6（約10px）静かにスッと浮き上がる */
+/* カテゴリパネルのドラッグ時3Dガタつき防止（元の位置を崩さない） */
 .category-card.sortable-chosen {
-  transform: perspective(800px) rotateX(6deg) translateY(-10px) translateZ(15px) !important;
+  transform: perspective(800px) rotateX(6deg) translateY(0) translateZ(0) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.25),
     0 1px 0 rgba(255,255,255,0.15),
-    0 12px 30px rgba(0,0,0,0.6) !important;
+    0 4px 12px rgba(0,0,0,0.3) !important;
 }
 
-/* クローンの指追従スタイル：ドラッグ中の要素を半透明にし、エフェクトを一切排除した最小限の視覚フィードバック */
+/* クローン（指追従要素）：フローティング・半透明追従いずれも不要とのご指示に基づき、
+   指についてくる要素を完全に透明化することで、レイアウト等の副作用を「完全ゼロ」にします */
 .sortable-fallback-simple {
-  opacity: 0.6 !important; /* ドラッグ中はしっかり半透明にする */
-  transform: scale(1.0) !important; /* 拡大や変形は一切なし */
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important; /* 最小限の極めて薄い影のみ */
+  opacity: 0 !important; /* 完全に透明化 */
+  transform: none !important;
+  box-shadow: none !important;
   z-index: 99999 !important;
   pointer-events: none !important;
-}
-.article-item.sortable-ghost {
-  background: var(--bg-card-hover);
-  opacity: 0.4;
-}
-.article-item.sortable-chosen {
-  background: var(--bg-card-hover);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 
 /* ════════════════════════════
