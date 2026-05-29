@@ -562,36 +562,34 @@ body {
 
 /* ── Sortable drag styles ── */
 .sortable-ghost {
-  opacity: 0.35;
-  transform: scale(0.97);
+  opacity: 0.25 !important;
 }
 .sortable-chosen {
-  box-shadow: 0 8px 30px rgba(0,0,0,0.5) !important;
-  transform: none !important;
   z-index: 999;
 }
-/* forceFallbackクローンのフローティングスタイル */
-.sortable-fallback {
-  opacity: 1 !important;
+
+/* カード一覧のドラッグ開始時：シンプルな選択表示 */
+.article-item.sortable-chosen {
+  background: var(--bg-card-hover);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+}
+
+/* カテゴリパネル（ホーム）のドラッグ開始時：3D遠近感を崩さず、縦の長さの1/6（約10px）静かにスッと浮き上がる */
+.category-card.sortable-chosen {
+  transform: perspective(800px) rotateX(6deg) translateY(-10px) translateZ(15px) !important;
   box-shadow:
-    0 48px 100px rgba(0,0,0,0.95),
-    0 16px 40px rgba(0,0,0,0.7),
-    0 0 0 4px rgba(255,255,255,0.55) !important;
-  filter: brightness(1.5) !important;
+    inset 0 1px 0 rgba(255,255,255,0.25),
+    0 1px 0 rgba(255,255,255,0.15),
+    0 12px 30px rgba(0,0,0,0.6) !important;
+}
+
+/* クローンの指追従スタイル：拡大や特殊フィルタなしで、元の見た目のまま指に素直に追従 */
+.sortable-fallback-simple {
+  opacity: 0.95 !important;
+  transform: scale(1.0) !important; /* 拡大なし */
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; /* 最小限の自然な影 */
   z-index: 99999 !important;
   pointer-events: none !important;
-  border-radius: 16px !important;
-}
-/* フローティングドラッグ（ホームのカテゴリパネル） */
-.sortable-drag-float {
-  box-shadow:
-    0 32px 80px rgba(0,0,0,0.8),
-    0 8px 20px rgba(0,0,0,0.6) !important;
-  opacity: 1 !important;
-  filter: brightness(1.15) !important;
-  cursor: grabbing !important;
-  z-index: 9999 !important;
-  transition: none !important;
 }
 .article-item.sortable-ghost {
   background: var(--bg-card-hover);

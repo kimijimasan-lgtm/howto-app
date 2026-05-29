@@ -119,7 +119,8 @@ function addSwipeBack(el, onSwipe) {
   const onEnd = e => {
     const dx = e.changedTouches[0].clientX - sx;
     const dy = Math.abs(e.changedTouches[0].clientY - sy);
-    if (dx > 80 && dy < 80) onSwipe();
+    // 横方向の移動が縦の移動の2倍以上の場合のみ実行（斜めスワイプを厳格に排除）
+    if (dx > 80 && dy < dx * 0.5) onSwipe();
   };
   el.addEventListener('touchstart', onStart, { passive: true });
   el.addEventListener('touchend',   onEnd,   { passive: true });
@@ -133,8 +134,10 @@ function addSwipeBack(el, onSwipe) {
 // ── プルダウンで新規メモ作成 ──────────────────────
 function addPullToCreate(el) {
   const THRESHOLD = 80;
+  let startX = -1;
   let startY = -1;
   let indicator = null;
+  let isCancelled = false;
 
   const mkIndicator = () => {
     const d = document.createElement('div');
@@ -144,11 +147,26 @@ function addPullToCreate(el) {
   };
 
   const onStart = e => {
-    startY = (el.scrollTop === 0) ? e.touches[0].clientY : -1;
+    if (el.scrollTop === 0) {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      isCancelled = false;
+    } else {
+      startY = -1;
+    }
   };
   const onMove = e => {
-    if (startY < 0) return;
+    if (startY < 0 || isCancelled) return;
+    const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
+
+    // 横ブレを監視：横スワイプ等の動作（横移動が15pxを超え、かつ縦移動の60%以上）を検知したら即時キャンセル
+    if (Math.abs(dx) > 15 && Math.abs(dx) > dy * 0.6) {
+      isCancelled = true;
+      if (indicator) { indicator.remove(); indicator = null; }
+      return;
+    }
+
     if (dy <= 0) { startY = -1; return; }
     if (!indicator) indicator = mkIndicator();
     const ratio = Math.min(dy / THRESHOLD, 1);
@@ -158,10 +176,19 @@ function addPullToCreate(el) {
     indicator.classList.toggle('pull-ready', ratio >= 1);
   };
   const onEnd = e => {
-    if (startY < 0) return;
+    if (startY < 0 || isCancelled) {
+      if (indicator) { indicator.remove(); indicator = null; }
+      startY = -1;
+      return;
+    }
+    const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
     if (indicator) { indicator.remove(); indicator = null; }
-    if (dy >= THRESHOLD) createArticle(true);
+    
+    // 最終判定：しっかり縦方向に引っ張られ、横ブレが半分以下の時だけ新規作成
+    if (dy >= THRESHOLD && Math.abs(dx) < dy * 0.5) {
+      createArticle(true);
+    }
     startY = -1;
   };
 
@@ -288,8 +315,11 @@ function renderHome(container) {
         animation: 150,
         delay: 300,
         delayOnTouchOnly: true,
+        forceFallback: true,            // タッチ操作の並び替え安定化
+        fallbackOnBody: false,          // bodyに移設せず位置ズレを完全防止
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
+        fallbackClass: 'sortable-fallback-simple', // 拡大・ズレのない極めてシンプルな指追従スタイル
         onStart: () => { grid.style.overflow = 'visible'; },
         onEnd: async evt => {
           grid.style.overflow = '';
@@ -520,8 +550,11 @@ function renderCategory(container) {
         animation: 150,
         delay: 300,
         delayOnTouchOnly: true,
+        forceFallback: true,            // タッチ操作の並び替え安定化
+        fallbackOnBody: false,          // bodyに移設せず位置ズレを完全防止
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
+        fallbackClass: 'sortable-fallback-simple', // 拡大・ズレのない極めてシンプルな指追従スタイル
         onStart: () => {
           list.style.overflow = 'visible';
         },
@@ -721,6 +754,13 @@ function renderEditor(container) {
     e.target.value = '';
   };
 
+  // 連続する記号による罫線もどきを自動検知して除去する関数
+  function cleanBorderLines(txt) {
+    // 3つ以上同じ記号が連続している行を検出（全角・半角対応）
+    const borderRegex = /^[ \t]*([-_=\*~\+\.─━┄┅┈┉＝＊◆■★☆│┃┆┇┊┋┌┐└┘├┤┬┴┼])\1{2,}[ \t]*$/gm;
+    return (txt || '').replace(borderRegex, '');
+  }
+
   document.getElementById('edContent').addEventListener('paste', e => {
     e.preventDefault(); // デフォルトの貼り付けを阻止
     const items = e.clipboardData?.items;
@@ -754,19 +794,42 @@ function renderEditor(container) {
     }
 
     if (text) {
-      // 選択範囲に純粋なテキストノードを直接挿入（背景色やHTMLタグが混ざる余地を100%遮断）
+      // 1. 罫線もどきを自動クリーンアップ
+      const cleanedText = cleanBorderLines(text);
+
+      // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
+      const lines = cleanedText.split('\n');
+      const fragment = document.createDocumentFragment();
+
+      lines.forEach((line) => {
+        // 空行（改行のみ）は段落間の改行（空行）として再現
+        if (line.trim() === '') {
+          const p = document.createElement('p');
+          p.appendChild(document.createElement('br'));
+          fragment.appendChild(p);
+        } else {
+          const p = document.createElement('p');
+          // textContentを使うことで行頭の半角・全角スペース（インデント）を100%忠実に保持
+          p.textContent = line;
+          fragment.appendChild(p);
+        }
+      });
+
+      // 3. カーソル位置に安全に流し込む（100%スタイル混入をシャットアウト）
       const sel = window.getSelection();
       if (sel && sel.rangeCount) {
         sel.deleteFromDocument();
         const range = sel.getRangeAt(0);
-        const textNode = document.createTextNode(text);
-        range.insertNode(textNode);
-        range.setStartAfter(textNode);
-        range.collapse(true);
+        
+        // フラグメントを挿入
+        range.insertNode(fragment);
+        
+        // カーソルを挿入したコンテンツの末尾に移動
+        range.collapse(false);
         sel.removeAllRanges();
         sel.addRange(range);
       } else {
-        document.getElementById('edContent').appendChild(document.createTextNode(text));
+        document.getElementById('edContent').appendChild(fragment);
       }
       // 自動保存を動かすためにinputイベントを発火
       document.getElementById('edContent').dispatchEvent(new Event('input'));
