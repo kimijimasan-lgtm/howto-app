@@ -583,11 +583,11 @@ body {
     0 12px 30px rgba(0,0,0,0.6) !important;
 }
 
-/* クローンの指追従スタイル：拡大や特殊フィルタなしで、元の見た目のまま指に素直に追従 */
+/* クローンの指追従スタイル：ドラッグ中の要素を半透明にし、エフェクトを一切排除した最小限の視覚フィードバック */
 .sortable-fallback-simple {
-  opacity: 0.95 !important;
-  transform: scale(1.0) !important; /* 拡大なし */
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; /* 最小限の自然な影 */
+  opacity: 0.6 !important; /* ドラッグ中はしっかり半透明にする */
+  transform: scale(1.0) !important; /* 拡大や変形は一切なし */
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important; /* 最小限の極めて薄い影のみ */
   z-index: 99999 !important;
   pointer-events: none !important;
 }
