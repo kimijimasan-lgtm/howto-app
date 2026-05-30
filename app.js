@@ -59,7 +59,6 @@ let catSortable = null;
 let artSortable = null;
 let navHistory  = [];   // 画面履歴スタック
 let isDragging  = false; // ドラッグ並び替え中ガードフラグ
-let isParagraphSortingMode = false; // 段落整理モードフラグ
 let paraSortable = null;
 let paraSwipeListeners = [];
 
@@ -71,23 +70,16 @@ function forceSaveEditorContent() {
   
   if (saveTimer) clearTimeout(saveTimer);
   
-  // もし整理モード中なら解除してクリーンアップ（その中でクリーンなHTMLが作成・保存される）
-  if (isParagraphSortingMode) {
-    const btn = document.getElementById('btnSortParagraphs');
-    if (btn) {
-      btn.classList.remove('active');
-      btn.style.color = '';
-    }
-    disableParagraphSortMode(editor);
-    isParagraphSortingMode = false;
-    return;
-  }
+  // 保存時は確実にスワイプなどの付帯タグを取り除いたクリーンなHTMLを保存する
+  const cleanHTML = getCleanEditorHTML(editor);
   
-  const content = editor.innerHTML;
   db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
-    content: content,
+    content: cleanHTML,
     updatedAt: Date.now()
   }).catch(err => console.error("Force save error:", err));
+
+  // リスナー解放
+  cleanupNativeParagraphListeners(editor);
 }
 
 // ── 画面遷移 ─────────────────────────────────
@@ -461,11 +453,18 @@ function renderCategory(container) {
           </svg>
         </button>
         <h2 class="screen-title" id="catTitle">…</h2>
-        <button class="btn-icon accent" id="btnNewArt" title="新規メモ">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>
+        <div style="display: flex; gap: 0.25rem;">
+          <button class="btn-icon" id="btnExportAll" title="このカテゴリの全メモを一括エクスポート">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+          <button class="btn-icon accent" id="btnNewArt" title="新規メモ">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
       </header>
       <ul class="article-list" id="artList">
         <div class="loading-spinner">読み込み中…</div>
@@ -473,6 +472,7 @@ function renderCategory(container) {
     </div>`;
 
   document.getElementById('btnHome').onclick   = () => goTo('home');
+  document.getElementById('btnExportAll').onclick = () => showExportAllModal(state.categoryId);
   document.getElementById('btnNewArt').onclick = () => createArticle();
   addSwipeBack(container, () => goBack());
   addPullToCreate(document.getElementById('artList'));
@@ -529,16 +529,9 @@ function renderCategory(container) {
       li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
       li.innerHTML = `
-        <div class="article-inner" style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
-          <div style="flex: 1; min-width: 0;">
-            <div class="article-title">${esc(title)}</div>
-            <div class="article-preview">${esc(preview)}</div>
-          </div>
-          <button class="btn-icon btn-export" style="width: 36px; height: 36px; margin-left: auto;" title="エクスポート">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </button>
+        <div class="article-inner">
+          <div class="article-title">${esc(title)}</div>
+          <div class="article-preview">${esc(preview)}</div>
         </div>
         <div class="swipe-actions">
           <button class="swipe-action-btn swipe-action-move">
@@ -551,16 +544,9 @@ function renderCategory(container) {
           </button>
         </div>`;
 
-      // カード本体タップ→エディター（エクスポートボタンを避けるため、テキストエリアに直接バインドするか、event.targetを判定）
-      li.querySelector('.article-inner').onclick = e => {
-        if (e.target.closest('.btn-export')) return; // エクスポートボタンタップ時は無視
+      // カード本体タップ→エディター
+      li.querySelector('.article-inner').onclick = () => {
         goTo('editor', state.categoryId, art.id);
-      };
-
-      // エクスポートボタン
-      li.querySelector('.btn-export').onclick = e => {
-        e.stopPropagation();
-        showExportModal(art.id, state.categoryId);
       };
 
       // 移動ボタン
@@ -686,48 +672,63 @@ async function deleteArticleById(artId, catId) {
   await db.ref(`articles/${catId}/${artId}`).remove();
 }
 
-// ── エクスポート選択モーダルの表示 ────────────────
-function showExportModal(artId, catId) {
-  db.ref(`articles/${catId}/${artId}`).once('value', snap => {
-    const val = snap.val();
-    if (!val) return;
-    const contentHTML = val.content || '';
+// ── 一括エクスポート選択モーダルの表示 ────────────────
+function showExportAllModal(catId) {
+  // そのカテゴリ内の全メモを順序順（画面の表示順と同じ降順ソート）で取得する
+  db.ref(`articles/${catId}`).once('value', snap => {
+    const data = snap.val();
+    if (!data) {
+      alert('エクスポートするメモがありません。');
+      return;
+    }
+
+    const articles = Object.entries(data)
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) return b.order - a.order; // 新しい（order大）順＝表示と同じ
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+
+    if (articles.length === 0) {
+      alert('エクスポートするメモがありません。');
+      return;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'move-modal-overlay';
     overlay.innerHTML = `
       <div class="move-modal" style="padding: 1.5rem; max-height: 80vh;">
         <div class="move-modal-header" style="padding: 0 0 1rem 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border);">
-          <span style="font-size: 1.1rem; font-weight: 700;">エクスポート方法を選択</span>
+          <span style="font-size: 1.1rem; font-weight: 700;">全メモを一括エクスポート</span>
           <button class="move-modal-close" id="exportCloseBtn">キャンセル</button>
         </div>
         <ul class="move-cat-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.5rem 0;">
           <li class="btn-export-option" data-type="copy" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
             <span style="font-size: 1.5rem;">📋</span>
             <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">クリップボードにコピー</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">本文テキストをコピーしてすぐに貼り付けられます</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">全データ連結コピー</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを連結してクリップボードにコピーします</div>
             </div>
           </li>
           <li class="btn-export-option" data-type="text" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
             <span style="font-size: 1.5rem;">📝</span>
             <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">テキスト連結（.txt出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">タイトルと本文を結合したテキストファイルを保存します</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">テキスト連結（.txt一括出力）</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを連結したテキストファイルを保存します</div>
             </div>
           </li>
           <li class="btn-export-option" data-type="md" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
             <span style="font-size: 1.5rem;">✍️</span>
             <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Markdown形式（.md出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">見出し記法を保ったマークダウンファイルを保存します</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Markdown連結（.md一括出力）</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを統合したマークダウンファイルを保存します</div>
             </div>
           </li>
           <li class="btn-export-option" data-type="pdf" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
             <span style="font-size: 1.5rem;">📄</span>
             <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">PDF形式（印刷・PDF出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">タイトルと本文を美しくA4印刷・PDF出力します</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">PDF形式（一括印刷・PDF出力）</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを改ページ付きで美しく一括印刷・PDF出力します</div>
             </div>
           </li>
         </ul>
@@ -740,7 +741,7 @@ function showExportModal(artId, catId) {
     overlay.querySelectorAll('.btn-export-option').forEach(btn => {
       btn.onclick = () => {
         const type = btn.dataset.type;
-        handleExportAction(type, contentHTML);
+        handleExportAllAction(type, articles);
         overlay.remove();
       };
       btn.onmouseenter = () => btn.style.background = 'rgba(255,255,255,0.08)';
@@ -749,54 +750,82 @@ function showExportModal(artId, catId) {
   });
 }
 
-// ── 実際のエクスポート処理の実行 ──────────────────
-function handleExportAction(type, html) {
-  const lines = htmlToLines(html);
-  const title = lines[0] || '無題のメモ';
+// ── 実際の一括エクスポート処理の実行 ──────────────────
+function handleExportAllAction(type, articles) {
+  const catTitleEl = document.getElementById('catTitle');
+  const catName = catTitleEl ? catTitleEl.textContent : 'カテゴリ';
 
   if (type === 'copy') {
-    const textToCopy = lines.join('\n');
-    navigator.clipboard.writeText(textToCopy)
-      .then(() => alert('クリップボードにコピーしました！'))
+    const textData = articles.map(art => {
+      const lines = htmlToLines(art.content);
+      const title = lines[0] || '（タイトルなし）';
+      const body = lines.slice(1).join('\n');
+      return `■ ${title}\n${body}`;
+    }).join('\n\n----------------------------------------\n\n');
+
+    navigator.clipboard.writeText(textData)
+      .then(() => alert('全メモをクリップボードに一括コピーしました！'))
       .catch(() => alert('コピーに失敗しました。'));
   }
   else if (type === 'text') {
-    const textToCopy = lines.join('\n');
-    const blob = new Blob([textToCopy], { type: 'text/plain;charset=utf-8;' });
+    const textData = articles.map(art => {
+      const lines = htmlToLines(art.content);
+      const title = lines[0] || '（タイトルなし）';
+      const body = lines.slice(1).join('\n');
+      return `■ ${title}\n${body}`;
+    }).join('\n\n----------------------------------------\n\n');
+
+    const blob = new Blob([textData], { type: 'text/plain;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title}.txt`;
+    a.download = `${catName}_一括エクスポート.txt`;
     a.click();
     URL.revokeObjectURL(url);
   }
   else if (type === 'md') {
-    let md = `# ${title}\n\n`;
-    md += lines.slice(1).join('\n\n');
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+    const mdData = articles.map(art => {
+      const lines = htmlToLines(art.content);
+      const title = lines[0] || '（タイトルなし）';
+      const body = lines.slice(1).join('\n\n');
+      return `# ${title}\n\n${body}`;
+    }).join('\n\n---\n\n');
+
+    const blob = new Blob([mdData], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title}.md`;
+    a.download = `${catName}_一括エクスポート.md`;
     a.click();
     URL.revokeObjectURL(url);
   }
   else if (type === 'pdf') {
-    const cleanBody = lines.slice(1).map(l => `<p>${esc(l)}</p>`).join('');
+    const cleanHTML = articles.map((art, idx) => {
+      const lines = htmlToLines(art.content);
+      const title = lines[0] || '（タイトルなし）';
+      const cleanBody = lines.slice(1).map(l => `<p>${esc(l)}</p>`).join('');
+      const pageBreak = idx < articles.length - 1 ? 'style="page-break-after: always;"' : '';
+      return `
+        <div class="article-pdf-section" ${pageBreak}>
+          <h1>${esc(title)}</h1>
+          <div class="content">${cleanBody}</div>
+        </div>`;
+    }).join('');
+
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
         <head>
-          <title>${title}</title>
+          <title>${esc(catName)} 一括エクスポート</title>
           <style>
-            body { font-family: 'Noto Sans JP', sans-serif; padding: 2.5cm 2cm; line-height: 1.85; color: #1f2937; }
+            body { font-family: 'Noto Sans JP', sans-serif; padding: 2cm 2cm; line-height: 1.85; color: #1f2937; }
+            .article-pdf-section { margin-bottom: 2rem; }
             h1 { border-bottom: 2px solid #374151; padding-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; margin-bottom: 2rem; color: #111827; }
             p { font-size: 1.05rem; margin: 0 0 1.25rem 0; word-break: break-all; white-space: pre-wrap; }
           </style>
         </head>
         <body>
-          <h1>${title}</h1>
-          <div class="content">${cleanBody}</div>
+          ${cleanHTML}
           <script>
             window.onload = function() {
               window.print();
@@ -858,11 +887,6 @@ function renderEditor(container) {
               <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
             </svg>
           </button>
-          <button class="btn-icon" id="btnSortParagraphs" title="段落の削除・並び替え">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <polyline points="17 11 12 6 7 11"/><polyline points="7 13 12 18 17 13"/>
-            </svg>
-          </button>
           <button class="btn-icon danger" id="btnDel" title="削除">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <polyline points="3 6 5 6 21 6"/>
@@ -880,7 +904,6 @@ function renderEditor(container) {
 
   document.getElementById('btnBack').onclick   = () => goBack();
   document.getElementById('btnEdHome').onclick = () => goTo('home');
-  document.getElementById('btnSortParagraphs').onclick = () => toggleParagraphSortMode();
   document.getElementById('btnDel').onclick    = deleteArticle;
   addSwipeBack(container, () => goBack());
 
@@ -1005,6 +1028,7 @@ function renderEditor(container) {
 
     if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
     editor.focus();
+    initializeNativeParagraphActions(editor);
 
     // 自動保存（1秒デバウンス）
     editor.oninput = () => {
@@ -1012,8 +1036,9 @@ function renderEditor(container) {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
+          const cleanHTML = getCleanEditorHTML(editor);
           await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
-            content: editor.innerHTML, updatedAt: Date.now()
+            content: cleanHTML, updatedAt: Date.now()
           });
           const s = document.getElementById('saveStatus');
           if (s) { s.textContent = '保存済み ✓'; s.className = 'save-status saved'; }
@@ -1050,144 +1075,118 @@ function esc(str) {
   );
 }
 
-// ── 段落整理（並び替え・削除）モード ─────────────────
-function toggleParagraphSortMode() {
-  const editor = document.getElementById('edContent');
-  const btn = document.getElementById('btnSortParagraphs');
-  if (!editor || !btn) return;
+// ── 段落の常時スワイプ削除・ドラッグ並び替え制御 ─────────────────
+let activeGlobalEditorClickCleanup = null;
 
-  isParagraphSortingMode = !isParagraphSortingMode;
-
-  if (isParagraphSortingMode) {
-    // 整理モード起動
-    btn.classList.add('active');
-    btn.style.color = 'var(--accent)';
-    editor.setAttribute('contenteditable', 'false');
-    editor.classList.add('sorting-active');
-
-    // 各段落をスワイプ用の構造にパックする
-    const paragraphs = Array.from(editor.children);
-    paragraphs.forEach((p, idx) => {
-      // 空白段落は <br> を入れて高さを保証
-      if (!p.innerHTML || p.innerHTML.trim() === '') {
-        p.innerHTML = '<br>';
-      }
-      
-      const originalHTML = p.innerHTML;
-      p.innerHTML = '';
-      
-      const inner = document.createElement('div');
-      inner.className = 'para-inner';
-      inner.innerHTML = originalHTML;
-      
-      const actions = document.createElement('div');
-      actions.className = 'para-actions';
-      actions.innerHTML = `
-        <button class="para-action-btn para-action-delete" title="削除">🚮</button>
-        <div class="para-action-btn para-action-drag" title="ドラッグして移動">↕️</div>
-      `;
-      
-      p.appendChild(inner);
-      p.appendChild(actions);
-
-      // 削除ボタン
-      actions.querySelector('.para-action-delete').onclick = (e) => {
-        e.stopPropagation();
-        p.remove();
-        saveEditorFromSortingMode(); // 即座にクリーンな状態で保存
-      };
-
-      // 左スワイプ検出
-      let txStart = 0, tyStart = 0;
-      const touchStartHandler = e => {
-        txStart = e.touches[0].clientX;
-        tyStart = e.touches[0].clientY;
-      };
-      const touchEndHandler = e => {
-        const dx = e.changedTouches[0].clientX - txStart;
-        const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
-        if (Math.abs(dx) > 40 && dy < 60) {
-          if (dx < 0) {
-            // 他を閉じてこれを開く
-            editor.querySelectorAll('p.swiped').forEach(el => {
-              if (el !== p) el.classList.remove('swiped');
-            });
-            p.classList.add('swiped');
-          } else {
-            p.classList.remove('swiped');
-          }
-        }
-      };
-
-      p.addEventListener('touchstart', touchStartHandler, { passive: true });
-      p.addEventListener('touchend', touchEndHandler, { passive: true });
-      
-      paraSwipeListeners.push({
-        element: p,
-        start: touchStartHandler,
-        end: touchEndHandler
-      });
-    });
-
-    // Sortable.js の初期化
-    if (window.Sortable) {
-      paraSortable = Sortable.create(editor, {
-        animation: 150,
-        handle: '.para-action-drag', // ↕️ ドラッグハンドルのみでドラッグ可能
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        onEnd: () => {
-          saveEditorFromSortingMode(); // 並び替え終了時に保存
-        }
-      });
-    }
-  } else {
-    // 整理モード解除
-    btn.classList.remove('active');
-    btn.style.color = '';
-    disableParagraphSortMode(editor);
-  }
-}
-
-// 整理モードの解除処理（クリーンアップ）
-function disableParagraphSortMode(editor) {
+// エディタロード時に常時スワイプと並び替えを自動バインド
+function initializeNativeParagraphActions(editor) {
   if (!editor) return;
 
-  // 1. スワイプリスナー解除
-  paraSwipeListeners.forEach(item => {
-    item.element.removeEventListener('touchstart', item.start);
-    item.element.removeEventListener('touchend', item.end);
-  });
-  paraSwipeListeners = [];
+  // 1. 各段落（<p>）に左スワイプイベントをバインド
+  bindParagraphSwipeEvents(editor);
 
-  // 2. Sortable 解除
-  if (paraSortable) {
-    paraSortable.destroy();
-    paraSortable = null;
+  // 2. Sortable.js の初期化（常に有効、ただしドラッグハンドル↕️のみで発動）
+  if (window.Sortable) {
+    if (paraSortable) paraSortable.destroy();
+    paraSortable = Sortable.create(editor, {
+      animation: 150,
+      handle: '.para-action-drag', // ↕️ ドラッグハンドルのみでドラッグ可能
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      onStart: () => {
+        // ドラッグ開始時に他のスワイプ状態を安全に閉じる
+        editor.querySelectorAll('p.swiped').forEach(p => {
+          if (!p.classList.contains('sortable-chosen')) {
+            cleanupSingleParagraph(p);
+          }
+        });
+      },
+      onEnd: () => {
+        saveEditorContentDirectly(editor); // 並び替え終了時にクリーン状態で保存
+      }
+    });
   }
 
-  // 3. HTML構造を元に戻す
-  const paragraphs = Array.from(editor.children);
-  paragraphs.forEach(p => {
-    const inner = p.querySelector('.para-inner');
-    if (inner) {
-      p.innerHTML = inner.innerHTML;
-    }
-    p.classList.remove('swiped');
+  // 3. 入力や他箇所のタップによる自動解除を登録（副作用防止）
+  // タイピング開始時にスワイプUIを一瞬で解除
+  editor.onkeydown = () => {
+    cleanupAllSwipedParagraphs(editor);
+  };
+
+  // フォーカスイン時にも解除
+  editor.addEventListener('focusin', () => {
+    cleanupAllSwipedParagraphs(editor);
   });
 
-  editor.classList.remove('sorting-active');
-  editor.setAttribute('contenteditable', 'true');
-  
-  // 最後に自動保存をキック
-  editor.dispatchEvent(new Event('input'));
+  // エディタ外のクリックで解除
+  const outsideClickListener = (e) => {
+    if (!editor.contains(e.target)) {
+      cleanupAllSwipedParagraphs(editor);
+    }
+  };
+  document.addEventListener('click', outsideClickListener);
+  activeGlobalEditorClickCleanup = outsideClickListener;
 }
 
-// 整理モード中の変更を Firebase にクリーンな状態で保存する
-function saveEditorFromSortingMode() {
-  const editor = document.getElementById('edContent');
-  if (!editor || !state.articleId || !state.categoryId) return;
+// 特定の段落をスワイプパック（🚮と↕️を展開）
+function packParagraphForSwipe(p, editor) {
+  if (!p || p.classList.contains('swiped')) return;
 
+  // 他の段落のスワイプをすべて閉じる
+  cleanupAllSwipedParagraphs(editor);
+
+  // 空白段落は <br> を入れて高さを保証
+  if (!p.innerHTML || p.innerHTML.trim() === '') {
+    p.innerHTML = '<br>';
+  }
+
+  const originalHTML = p.innerHTML;
+  p.innerHTML = '';
+
+  const inner = document.createElement('div');
+  inner.className = 'para-inner';
+  inner.innerHTML = originalHTML;
+
+  const actions = document.createElement('div');
+  actions.className = 'para-actions';
+  actions.innerHTML = `
+    <button class="para-action-btn para-action-delete" title="削除">🚮</button>
+    <div class="para-action-btn para-action-drag" title="ドラッグして移動">↕️</div>
+  `;
+
+  p.appendChild(inner);
+  p.appendChild(actions);
+  p.classList.add('swiped');
+
+  // 削除ボタンイベント
+  actions.querySelector('.para-action-delete').onclick = (e) => {
+    e.stopPropagation();
+    p.remove();
+    saveEditorContentDirectly(editor); // 即座にクリーンな状態で保存
+  };
+}
+
+// 単一の段落のスワイプ状態を解除してプレーンに戻す
+function cleanupSingleParagraph(p) {
+  if (!p || !p.classList.contains('swiped')) return;
+  const inner = p.querySelector('.para-inner');
+  if (inner) {
+    p.innerHTML = inner.innerHTML;
+  }
+  p.classList.remove('swiped');
+  p.removeAttribute('class');
+}
+
+// すべてのスワイプ状態の段落をクリーンアップ
+function cleanupAllSwipedParagraphs(editor) {
+  if (!editor) return;
+  const swipedParas = Array.from(editor.querySelectorAll('p.swiped'));
+  swipedParas.forEach(p => cleanupSingleParagraph(p));
+}
+
+// エディタ全体のクリーンなHTMLを抽出（Firebase保存や一時処理用）
+function getCleanEditorHTML(editor) {
+  if (!editor) return '';
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = editor.innerHTML;
   
@@ -1200,13 +1199,80 @@ function saveEditorFromSortingMode() {
     p.classList.remove('swiped');
     p.removeAttribute('class');
   });
+  return tempDiv.innerHTML;
+}
 
-  const cleanHTML = tempDiv.innerHTML;
-
+// 直接FirebaseにクリーンHTMLを同期保存
+function saveEditorContentDirectly(editor) {
+  if (!editor || !state.articleId || !state.categoryId) return;
+  const cleanHTML = getCleanEditorHTML(editor);
   db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
     updatedAt: Date.now()
-  }).catch(err => console.error("Sorting mode save error:", err));
+  }).catch(err => console.error("Native sorting save error:", err));
+}
+
+// スワイプイベントのバインド
+function bindParagraphSwipeEvents(editor) {
+  // 古いスワイプイベントをアンバインド
+  cleanupNativeParagraphListeners(editor);
+
+  // エディタ内の各段落に対し、左スワイプで動的パックするように設定
+  const paragraphs = Array.from(editor.children);
+  paragraphs.forEach(p => {
+    let txStart = 0, tyStart = 0;
+    const touchStartHandler = e => {
+      txStart = e.touches[0].clientX;
+      tyStart = e.touches[0].clientY;
+    };
+    const touchEndHandler = e => {
+      const dx = e.changedTouches[0].clientX - txStart;
+      const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
+      
+      // テキスト選択中はスワイプを完全に無視（競合防止）
+      if (window.getSelection().toString() !== '') return;
+
+      if (Math.abs(dx) > 50 && dy < 40) {
+        if (dx < 0) {
+          // 左スワイプ：パックして展開
+          packParagraphForSwipe(p, editor);
+        } else {
+          // 右スワイプ：閉じる
+          cleanupSingleParagraph(p);
+        }
+      }
+    };
+
+    p.addEventListener('touchstart', touchStartHandler, { passive: true });
+    p.addEventListener('touchend', touchEndHandler, { passive: true });
+
+    paraSwipeListeners.push({
+      element: p,
+      start: touchStartHandler,
+      end: touchEndHandler
+    });
+  });
+}
+
+// 登録されたイベントやグローバルリスナーの解放（メモリリーク・副作用防止）
+function cleanupNativeParagraphListeners(editor) {
+  paraSwipeListeners.forEach(item => {
+    if (item.element) {
+      item.element.removeEventListener('touchstart', item.start);
+      item.element.removeEventListener('touchend', item.end);
+    }
+  });
+  paraSwipeListeners = [];
+
+  if (paraSortable) {
+    paraSortable.destroy();
+    paraSortable = null;
+  }
+
+  if (activeGlobalEditorClickCleanup) {
+    document.removeEventListener('click', activeGlobalEditorClickCleanup);
+    activeGlobalEditorClickCleanup = null;
+  }
 }
 
 // ── 起動 ────────────────────────────────────

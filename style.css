@@ -476,28 +476,26 @@ body {
   pointer-events: none;
   white-space: pre-line;
 }
-.editor-content p { margin: 0; min-height: 1.85em; }
-
-/* ── 段落整理（並び替え・削除）モード ── */
-#btnSortParagraphs.active {
-  background: var(--accent-dim) !important;
-  color: var(--accent) !important;
+.editor-content p {
+  position: relative;
+  transition: background-color 0.2s;
+  margin: 0;
+  min-height: 1.85em;
 }
 
-.editor-content.sorting-active p {
-  position: relative;
+/* ── 段落の常時スワイプUI（削除・並び替え） ── */
+.editor-content p.swiped {
   overflow: hidden;
   margin-bottom: 0.5rem;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px dashed rgba(255, 255, 255, 0.1);
-  transition: background 0.2s;
   min-height: 2.8rem;
   display: flex;
   align-items: center;
   padding: 0 !important;
 }
-.editor-content.sorting-active p:hover {
+.editor-content p.swiped:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -509,7 +507,7 @@ body {
   transform: translateX(0);
   line-height: 1.6;
 }
-.editor-content.sorting-active p.swiped .para-inner {
+.editor-content p.swiped .para-inner {
   transform: translateX(-100px);
 }
 
@@ -524,7 +522,7 @@ body {
   z-index: 2;
   width: 100px;
 }
-.editor-content.sorting-active p.swiped .para-actions {
+.editor-content p.swiped .para-actions {
   transform: translateX(0);
 }
 
