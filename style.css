@@ -428,29 +428,7 @@ body {
 .save-status.editing { color: var(--text-sub); }
 .save-status.error  { color: var(--danger); }
 
-.editor-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-header);
-}
 
-.toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-family: var(--font);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.toolbar-btn:hover { background: var(--bg-card-hover); }
 
 .editor-content {
   flex: 1;

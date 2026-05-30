@@ -58,9 +58,28 @@ let saveTimer   = null;
 let catSortable = null;
 let artSortable = null;
 let navHistory  = [];   // 画面履歴スタック
+let isDragging  = false; // ドラッグ並び替え中ガードフラグ
+
+// ── エディター内容の即時強制保存 ─────────────────
+function forceSaveEditorContent() {
+  if (state.screen !== 'editor' || !state.articleId || !state.categoryId) return;
+  const editor = document.getElementById('edContent');
+  if (!editor) return;
+  
+  if (saveTimer) clearTimeout(saveTimer);
+  
+  const content = editor.innerHTML;
+  db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+    content: content,
+    updatedAt: Date.now()
+  }).catch(err => console.error("Force save error:", err));
+}
 
 // ── 画面遷移 ─────────────────────────────────
 function goTo(screen, categoryId = null, articleId = null) {
+  // エディターから遷移する場合は即座に強制保存
+  if (state.screen === 'editor') forceSaveEditorContent();
+
   // 履歴管理
   if (screen === 'home') {
     navHistory = [];  // ホームへ戻ると履歴リセット
@@ -90,6 +109,10 @@ function goTo(screen, categoryId = null, articleId = null) {
 // ── 1つ前の画面へ戻る ────────────────────────
 function goBack() {
   if (navHistory.length === 0) return;
+
+  // エディターから戻る場合は即座に強制保存
+  if (state.screen === 'editor') forceSaveEditorContent();
+
   const prev = navHistory.pop();
 
   listeners.forEach(fn => fn());
@@ -147,6 +170,9 @@ function addPullToCreate(el) {
   };
 
   const onStart = e => {
+    // 並び替えドラッグ操作中の場合は新規作成を完全にガード
+    if (isDragging) { startY = -1; return; }
+
     if (el.scrollTop === 0) {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -156,7 +182,7 @@ function addPullToCreate(el) {
     }
   };
   const onMove = e => {
-    if (startY < 0 || isCancelled) return;
+    if (startY < 0 || isCancelled || isDragging) return;
     const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
 
@@ -176,7 +202,7 @@ function addPullToCreate(el) {
     indicator.classList.toggle('pull-ready', ratio >= 1);
   };
   const onEnd = e => {
-    if (startY < 0 || isCancelled) {
+    if (startY < 0 || isCancelled || isDragging) {
       if (indicator) { indicator.remove(); indicator = null; }
       startY = -1;
       return;
@@ -556,9 +582,11 @@ function renderCategory(container) {
         chosenClass: 'sortable-chosen',
         fallbackClass: 'sortable-fallback-simple', // 拡大・ズレのない極めてシンプルな指追従スタイル
         onStart: () => {
+          isDragging = true; // 並び替えドラッグ中フラグをON
           list.style.overflow = 'visible';
         },
         onEnd: async evt => {
+          isDragging = false; // 並び替えドラッグ中フラグをOFF
           list.style.overflow = '';
           const items = list.querySelectorAll('.article-item');
           const updates = {};
@@ -684,10 +712,6 @@ function renderEditor(container) {
           </button>
         </div>
       </header>
-      <div class="editor-toolbar">
-        <button class="toolbar-btn" id="btnImg">📷 画像を追加</button>
-        <input type="file" id="imgFile" accept="image/*" style="display:none" />
-      </div>
       <div id="edContent" class="editor-content" contenteditable="true"
         data-placeholder="1行目がタイトルになります
 
@@ -699,88 +723,23 @@ function renderEditor(container) {
   document.getElementById('btnDel').onclick    = deleteArticle;
   addSwipeBack(container, () => goBack());
 
-  // ── 画像圧縮（Canvas経由、最大800px・JPEG 75%） ────────────
-  function compressImage(src, maxW = 800, quality = 0.75) {
-    return new Promise(resolve => {
-      const imgEl = new Image();
-      imgEl.onload = () => {
-        let w = imgEl.width, h = imgEl.height;
-        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(imgEl, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      imgEl.src = src;
-    });
-  }
+  // 罫線・特殊区切り文字を自動クリーンアップ＆スペース整形する関数
+  function cleanAndFormatBorderLines(txt) {
+    let t = txt || '';
+    
+    // 1. 横方向の罫線もどき（3つ以上連続する横線記号）の行を完全に削除
+    const horizontalBorderRegex = /^[ \t]*([-_=\*~\+\.─━┄┅┈┉＝＊◆■★☆┌┐└┘├┤┬┴┼])\1{2,}[ \t]*$/gm;
+    t = t.replace(horizontalBorderRegex, '');
 
-  // ── エディタに画像を挿入 ───────────────────────
-  function insertImageToEditor(src) {
-    const editor = document.getElementById('edContent');
-    if (!editor) return;
-    editor.focus();
-    const img = document.createElement('img');
-    img.src = src;
-    img.className = 'inserted-img';
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount) {
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      const br = document.createElement('br');
-      range.insertNode(br);
-      range.insertNode(img);
-      range.setStartAfter(br);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    } else {
-      editor.appendChild(img);
-    }
-    editor.dispatchEvent(new Event('input'));
-  }
+    // 2. 縦方向の罫線・区切り記号（│, ┃, ├, ┤, ┼, ｜, |, │ 等）を適度な複数の半角スペースに置換
+    const verticalBorderRegex = /[ \t　]*([│┃├┤┼｜\|┆┇┊┋┬┴])[ \t　]*/g;
+    t = t.replace(verticalBorderRegex, '     '); // 5個の半角スペースに置き換えて美しく整形
 
-  // 📷 画像挿入（ファイル選択）
-  document.getElementById('btnImg').onclick = () => document.getElementById('imgFile').click();
-  document.getElementById('imgFile').onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => {
-      const compressed = await compressImage(ev.target.result);
-      insertImageToEditor(compressed);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  // 連続する記号による罫線もどきを自動検知して除去する関数
-  function cleanBorderLines(txt) {
-    // 3つ以上同じ記号が連続している行を検出（全角・半角対応）
-    const borderRegex = /^[ \t]*([-_=\*~\+\.─━┄┅┈┉＝＊◆■★☆│┃┆┇┊┋┌┐└┘├┤┬┴┼])\1{2,}[ \t]*$/gm;
-    return (txt || '').replace(borderRegex, '');
+    return t;
   }
 
   document.getElementById('edContent').addEventListener('paste', e => {
     e.preventDefault(); // デフォルトの貼り付けを阻止
-    const items = e.clipboardData?.items;
-
-    // 画像があれば優先処理（圧縮して挿入）
-    if (items) {
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (!file) continue;
-          const reader = new FileReader();
-          reader.onload = async ev => {
-            const compressed = await compressImage(ev.target.result);
-            insertImageToEditor(compressed);
-          };
-          reader.readAsDataURL(file);
-          return;
-        }
-      }
-    }
 
     // テキスト：プレーンテキストとしてデータを取得（スタイルを完全除去）
     let text = e.clipboardData.getData('text/plain');
@@ -794,8 +753,8 @@ function renderEditor(container) {
     }
 
     if (text) {
-      // 1. 罫線もどきを自動クリーンアップ
-      const cleanedText = cleanBorderLines(text);
+      // 1. 罫線もどきの除去とスペース整形
+      const cleanedText = cleanAndFormatBorderLines(text);
 
       // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
       const lines = cleanedText.split('\n');
