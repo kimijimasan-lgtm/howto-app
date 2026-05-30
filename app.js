@@ -283,6 +283,11 @@ function renderHome(container) {
   container.innerHTML = `
     <div class="screen-home">
       <header class="app-header">
+        <button class="btn-icon btn-pc-only" id="btnShowQR" title="スマホ連動用QRコードを表示" style="margin-right: 0.25rem;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+        </button>
         <h1 class="app-title">📋 PCスマホ連動メモ</h1>
         <button class="btn-icon accent" id="btnAddCat" title="カテゴリを追加">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -296,6 +301,8 @@ function renderHome(container) {
     </div>`;
 
   document.getElementById('btnAddCat').onclick = () => showCategoryModal();
+  const showQrBtn = document.getElementById('btnShowQR');
+  if (showQrBtn) showQrBtn.onclick = () => showQRCodeModal();
 
   const ref = db.ref('categories');
   const handler = ref.on('value', snap => {
@@ -806,36 +813,26 @@ function handleExportAllAction(type, articles) {
       const cleanBody = lines.slice(1).map(l => `<p>${esc(l)}</p>`).join('');
       const pageBreak = idx < articles.length - 1 ? 'style="page-break-after: always;"' : '';
       return `
-        <div class="article-pdf-section" ${pageBreak}>
-          <h1>${esc(title)}</h1>
-          <div class="content">${cleanBody}</div>
+        <div class="article-pdf-section" ${pageBreak} style="margin-bottom: 3rem;">
+          <h1 style="border-bottom: 2px solid #374151; padding-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; margin-bottom: 2rem; color: #111827;">${esc(title)}</h1>
+          <div class="content" style="font-size: 1.05rem; line-height: 1.85; color: #1f2937; word-break: break-all; white-space: pre-wrap;">${cleanBody}</div>
         </div>`;
     }).join('');
 
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${esc(catName)} 一括エクスポート</title>
-          <style>
-            body { font-family: 'Noto Sans JP', sans-serif; padding: 2cm 2cm; line-height: 1.85; color: #1f2937; }
-            .article-pdf-section { margin-bottom: 2rem; }
-            h1 { border-bottom: 2px solid #374151; padding-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; margin-bottom: 2rem; color: #111827; }
-            p { font-size: 1.05rem; margin: 0 0 1.25rem 0; word-break: break-all; white-space: pre-wrap; }
-          </style>
-        </head>
-        <body>
-          ${cleanHTML}
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(() => { window.close(); }, 500);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    const element = document.createElement('div');
+    element.style.fontFamily = "'Noto Sans JP', sans-serif";
+    element.style.padding = "1cm";
+    element.innerHTML = cleanHTML;
+
+    const opt = {
+      margin:       1.5,
+      filename:     `${catName}_一括エクスポート.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'cm', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save();
   }
 }
 
@@ -882,6 +879,13 @@ function renderEditor(container) {
         </button>
         <span class="save-status editing" id="saveStatus">読み込み中…</span>
         <div class="editor-header-actions">
+          <button class="btn-icon danger" id="btnBulkDelete" title="選択した段落を一括削除" style="display: none; background: rgba(239, 68, 68, 0.25); border: 1px solid var(--danger); width: 42px; height: 42px; margin-right: 0.5rem; border-radius: 12px; color: var(--danger); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
           <button class="btn-icon" id="btnEdHome" title="ホームへ">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
@@ -905,6 +909,19 @@ function renderEditor(container) {
   document.getElementById('btnBack').onclick   = () => goBack();
   document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
+
+  const bulkDelBtn = document.getElementById('btnBulkDelete');
+  if (bulkDelBtn) {
+    bulkDelBtn.onclick = () => {
+      const editor = document.getElementById('edContent');
+      if (confirm('選択したすべての段落を一括削除します。よろしいですか？')) {
+        const selectedParas = editor.querySelectorAll('p.para-selected');
+        selectedParas.forEach(p => p.remove());
+        saveEditorContentDirectly(editor);
+        updateBulkDeleteButtonState(editor);
+      }
+    };
+  }
   addSwipeBack(container, () => goBack());
 
   // 罫線・特殊区切り文字を自動クリーンアップ＆スペース整形する関数
@@ -1075,41 +1092,19 @@ function esc(str) {
   );
 }
 
-// ── 段落の常時スワイプ削除・ドラッグ並び替え制御 ─────────────────
+// ── 段落の常時スワイプ一括削除制御 ─────────────────
 let activeGlobalEditorClickCleanup = null;
 
-// エディタロード時に常時スワイプと並び替えを自動バインド
+// エディタロード時にスワイプ選択を自動バインド
 function initializeNativeParagraphActions(editor) {
   if (!editor) return;
 
-  // 1. 各段落（<p>）に左スワイプイベントをバインド
+  // 1. 各段落（<p>）にスワイプイベントをバインド
   bindParagraphSwipeEvents(editor);
 
-  // 2. Sortable.js の初期化（常に有効、ただしドラッグハンドル↕️のみで発動）
-  if (window.Sortable) {
-    if (paraSortable) paraSortable.destroy();
-    paraSortable = Sortable.create(editor, {
-      animation: 150,
-      handle: '.para-action-drag', // ↕️ ドラッグハンドルのみでドラッグ可能
-      ghostClass: 'sortable-ghost',
-      chosenClass: 'sortable-chosen',
-      onStart: () => {
-        // ドラッグ開始時に他のスワイプ状態を安全に閉じる
-        editor.querySelectorAll('p.swiped').forEach(p => {
-          if (!p.classList.contains('sortable-chosen')) {
-            cleanupSingleParagraph(p);
-          }
-        });
-      },
-      onEnd: () => {
-        saveEditorContentDirectly(editor); // 並び替え終了時にクリーン状態で保存
-      }
-    });
-  }
-
-  // 3. 入力や他箇所のタップによる自動解除を登録（副作用防止）
-  // タイピング開始時にスワイプUIを一瞬で解除
-  editor.onkeydown = () => {
+  // 2. 入力や他箇所のタップによる自動解除を登録（副作用防止）
+  // タイピング開始時に選択状態を一瞬で自動クリーンアップ解除
+  editor.onkeydown = (e) => {
     cleanupAllSwipedParagraphs(editor);
   };
 
@@ -1120,7 +1115,7 @@ function initializeNativeParagraphActions(editor) {
 
   // エディタ外のクリックで解除
   const outsideClickListener = (e) => {
-    if (!editor.contains(e.target)) {
+    if (!editor.contains(e.target) && !e.target.closest('#btnBulkDelete')) {
       cleanupAllSwipedParagraphs(editor);
     }
   };
@@ -1128,63 +1123,77 @@ function initializeNativeParagraphActions(editor) {
   activeGlobalEditorClickCleanup = outsideClickListener;
 }
 
-// 特定の段落をスワイプパック（🚮と↕️を展開）
-function packParagraphForSwipe(p, editor) {
-  if (!p || p.classList.contains('swiped')) return;
+// 特定の段落を選択（チェック）状態にする/解除する（☑️のトグル）
+function toggleParagraphSelect(p, editor) {
+  if (!p) return;
 
-  // 他の段落のスワイプをすべて閉じる
-  cleanupAllSwipedParagraphs(editor);
+  const hasSelected = p.classList.contains('para-selected');
 
-  // 空白段落は <br> を入れて高さを保証
-  if (!p.innerHTML || p.innerHTML.trim() === '') {
-    p.innerHTML = '<br>';
+  if (hasSelected) {
+    // 選択解除
+    p.classList.remove('para-selected');
+    const chk = p.querySelector('.para-checkbox');
+    if (chk) chk.remove();
+  } else {
+    // 選択（チェックON）
+    p.classList.add('para-selected');
+    
+    // チェックボックススパンを左端に生成
+    const chk = document.createElement('span');
+    chk.className = 'para-checkbox';
+    chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
+    chk.innerHTML = '☑️';
+    chk.style.marginRight = '0.5rem';
+    chk.style.userSelect = 'none';
+    
+    p.insertBefore(chk, p.firstChild);
+
+    // チェックマーク自体をタップしても解除できるようにイベントを紐付け
+    chk.onclick = (e) => {
+      e.stopPropagation();
+      toggleParagraphSelect(p, editor);
+    };
   }
 
-  const originalHTML = p.innerHTML;
-  p.innerHTML = '';
-
-  const inner = document.createElement('div');
-  inner.className = 'para-inner';
-  inner.innerHTML = originalHTML;
-
-  const actions = document.createElement('div');
-  actions.className = 'para-actions';
-  actions.innerHTML = `
-    <button class="para-action-btn para-action-delete" title="削除">🚮</button>
-    <div class="para-action-btn para-action-drag" title="ドラッグして移動">↕️</div>
-  `;
-
-  p.appendChild(inner);
-  p.appendChild(actions);
-  p.classList.add('swiped');
-
-  // 削除ボタンイベント
-  actions.querySelector('.para-action-delete').onclick = (e) => {
-    e.stopPropagation();
-    p.remove();
-    saveEditorContentDirectly(editor); // 即座にクリーンな状態で保存
-  };
+  // 一括削除ボタンの表示状態を更新
+  updateBulkDeleteButtonState(editor);
 }
 
-// 単一の段落のスワイプ状態を解除してプレーンに戻す
-function cleanupSingleParagraph(p) {
-  if (!p || !p.classList.contains('swiped')) return;
-  const inner = p.querySelector('.para-inner');
-  if (inner) {
-    p.innerHTML = inner.innerHTML;
+// 一括削除ボタンの表示/非表示とアニメーションクラスのトグル
+function updateBulkDeleteButtonState(editor) {
+  const bulkDelBtn = document.getElementById('btnBulkDelete');
+  if (!bulkDelBtn || !editor) return;
+
+  const selectedCount = editor.querySelectorAll('p.para-selected').length;
+  if (selectedCount > 0) {
+    bulkDelBtn.style.display = 'flex';
+    bulkDelBtn.style.transform = 'scale(1.15)';
+    bulkDelBtn.classList.add('pulse-delete-active');
+  } else {
+    bulkDelBtn.style.display = 'none';
+    bulkDelBtn.style.transform = 'scale(1)';
+    bulkDelBtn.classList.remove('pulse-delete-active');
   }
-  p.classList.remove('swiped');
+}
+
+// 単一の段落の選択状態を解除してプレーンに戻す
+function cleanupSingleParagraph(p) {
+  if (!p || !p.classList.contains('para-selected')) return;
+  const chk = p.querySelector('.para-checkbox');
+  if (chk) chk.remove();
+  p.classList.remove('para-selected');
   p.removeAttribute('class');
 }
 
-// すべてのスワイプ状態の段落をクリーンアップ
+// すべての段落の選択状態をクリーンアップ
 function cleanupAllSwipedParagraphs(editor) {
   if (!editor) return;
-  const swipedParas = Array.from(editor.querySelectorAll('p.swiped'));
-  swipedParas.forEach(p => cleanupSingleParagraph(p));
+  const selectedParas = Array.from(editor.querySelectorAll('p.para-selected'));
+  selectedParas.forEach(p => cleanupSingleParagraph(p));
+  updateBulkDeleteButtonState(editor);
 }
 
-// エディタ全体のクリーンなHTMLを抽出（Firebase保存や一時処理用）
+// エディタ全体のクリーンなHTMLを抽出（チェック用スパンを完全に排除してプレーンなHTMLを返す）
 function getCleanEditorHTML(editor) {
   if (!editor) return '';
   const tempDiv = document.createElement('div');
@@ -1192,11 +1201,9 @@ function getCleanEditorHTML(editor) {
   
   const paragraphs = Array.from(tempDiv.children);
   paragraphs.forEach(p => {
-    const inner = p.querySelector('.para-inner');
-    if (inner) {
-      p.innerHTML = inner.innerHTML;
-    }
-    p.classList.remove('swiped');
+    const chk = p.querySelector('.para-checkbox');
+    if (chk) chk.remove();
+    p.classList.remove('para-selected');
     p.removeAttribute('class');
   });
   return tempDiv.innerHTML;
@@ -1209,15 +1216,13 @@ function saveEditorContentDirectly(editor) {
   db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
     updatedAt: Date.now()
-  }).catch(err => console.error("Native sorting save error:", err));
+  }).catch(err => console.error("Native select delete save error:", err));
 }
 
 // スワイプイベントのバインド
 function bindParagraphSwipeEvents(editor) {
-  // 古いスワイプイベントをアンバインド
   cleanupNativeParagraphListeners(editor);
 
-  // エディタ内の各段落に対し、左スワイプで動的パックするように設定
   const paragraphs = Array.from(editor.children);
   paragraphs.forEach(p => {
     let txStart = 0, tyStart = 0;
@@ -1229,16 +1234,15 @@ function bindParagraphSwipeEvents(editor) {
       const dx = e.changedTouches[0].clientX - txStart;
       const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
       
-      // テキスト選択中はスワイプを完全に無視（競合防止）
       if (window.getSelection().toString() !== '') return;
 
       if (Math.abs(dx) > 50 && dy < 40) {
         if (dx < 0) {
-          // 左スワイプ：パックして展開
-          packParagraphForSwipe(p, editor);
+          toggleParagraphSelect(p, editor);
         } else {
-          // 右スワイプ：閉じる
-          cleanupSingleParagraph(p);
+          if (p.classList.contains('para-selected')) {
+            toggleParagraphSelect(p, editor);
+          }
         }
       }
     };
@@ -1254,7 +1258,7 @@ function bindParagraphSwipeEvents(editor) {
   });
 }
 
-// 登録されたイベントやグローバルリスナーの解放（メモリリーク・副作用防止）
+// 登録されたイベントやグローバルリスナーの解放
 function cleanupNativeParagraphListeners(editor) {
   paraSwipeListeners.forEach(item => {
     if (item.element) {
@@ -1264,15 +1268,39 @@ function cleanupNativeParagraphListeners(editor) {
   });
   paraSwipeListeners = [];
 
-  if (paraSortable) {
-    paraSortable.destroy();
-    paraSortable = null;
-  }
-
   if (activeGlobalEditorClickCleanup) {
     document.removeEventListener('click', activeGlobalEditorClickCleanup);
     activeGlobalEditorClickCleanup = null;
   }
+}
+
+// ── PCからスマホへの同期用QRコードモーダル ──────────
+function showQRCodeModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'qrModalOverlay';
+  overlay.innerHTML = `
+    <div class="modal-overlay" style="position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+      <div class="modal-box" style="border: 2px solid #ef4444; max-width: 340px; text-align: center; background: #1c2230; padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+        <div style="background: rgba(239, 68, 68, 0.1); border-radius: 12px; padding: 0.75rem; border: 1px solid rgba(239, 68, 68, 0.3); margin-bottom: 1.25rem;">
+          <span style="font-size: 1.25rem; display: block; margin-bottom: 0.35rem; font-weight: 800; color: #f87171;">⚠️【厳重注意】</span>
+          <span style="font-size: 0.8rem; font-weight: 700; color: #fca5a5; line-height: 1.55; display: block;">
+            このQRコードはあなた専用のFirebase同期URLです。<br>
+            他人に読み取られないよう十分に注意してください！
+          </span>
+        </div>
+        <div style="background: #fff; padding: 1rem; border-radius: 16px; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.3); margin-bottom: 1.25rem;">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.href)}" alt="スマホ連動用QRコード" style="display: block; width: 200px; height: 200px; image-rendering: pixelated;"/>
+        </div>
+        <button class="btn-secondary" id="qrCloseBtn" style="width: 100%; border-radius: 12px; padding: 0.75rem; font-weight: 700;">閉じる</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#qrCloseBtn').onclick = close;
+  overlay.onclick = e => { if (e.target === overlay || e.target.id === 'qrModalOverlay') close(); };
 }
 
 // ── 起動 ────────────────────────────────────
