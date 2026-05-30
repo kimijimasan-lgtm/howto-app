@@ -284,8 +284,17 @@ function renderHome(container) {
     <div class="screen-home">
       <header class="app-header">
         <button class="btn-icon btn-pc-only" id="btnShowQR" title="スマホ連動用QRコードを表示" style="margin-right: 0.25rem;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="3" height="3" rx="0.5"/>
+            <rect x="18" y="18" width="3" height="3" rx="0.5"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+            <line x1="17" y1="7" x2="17.01" y2="7"/>
+            <line x1="7" y1="17" x2="7.01" y2="17"/>
+            <line x1="14" y1="18" x2="14.01" y2="18"/>
+            <line x1="18" y1="14" x2="18.01" y2="14"/>
           </svg>
         </button>
         <h1 class="app-title">📋 PCスマホ連動メモ</h1>
@@ -734,8 +743,8 @@ function showExportAllModal(catId) {
           <li class="btn-export-option" data-type="pdf" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
             <span style="font-size: 1.5rem;">📄</span>
             <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">PDF形式（一括印刷・PDF出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを改ページ付きで美しく一括印刷・PDF出力します</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">PDF形式（一括保存）</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを改ページ付きで美しくPDFファイルとして保存します</div>
             </div>
           </li>
         </ul>
@@ -748,8 +757,17 @@ function showExportAllModal(catId) {
     overlay.querySelectorAll('.btn-export-option').forEach(btn => {
       btn.onclick = () => {
         const type = btn.dataset.type;
-        handleExportAllAction(type, articles);
-        overlay.remove();
+        
+        let typeName = '';
+        if (type === 'copy') typeName = '全データ連結コピー';
+        if (type === 'text') typeName = 'テキスト連結（.txt一括出力）';
+        if (type === 'md') typeName = 'Markdown連結（.md一括出力）';
+        if (type === 'pdf') typeName = 'PDF形式（一括保存）';
+
+        if (confirm(`このカテゴリ内のすべてのメモを「${typeName}」でエクスポートします。よろしいですか？`)) {
+          handleExportAllAction(type, articles);
+          overlay.remove();
+        }
       };
       btn.onmouseenter = () => btn.style.background = 'rgba(255,255,255,0.08)';
       btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.04)';
@@ -914,12 +932,10 @@ function renderEditor(container) {
   if (bulkDelBtn) {
     bulkDelBtn.onclick = () => {
       const editor = document.getElementById('edContent');
-      if (confirm('選択したすべての段落を一括削除します。よろしいですか？')) {
-        const selectedParas = editor.querySelectorAll('p.para-selected');
-        selectedParas.forEach(p => p.remove());
-        saveEditorContentDirectly(editor);
-        updateBulkDeleteButtonState(editor);
-      }
+      const selectedParas = editor.querySelectorAll('p.para-selected');
+      selectedParas.forEach(p => p.remove());
+      saveEditorContentDirectly(editor);
+      updateBulkDeleteButtonState(editor);
     };
   }
   addSwipeBack(container, () => goBack());
@@ -1138,13 +1154,16 @@ function toggleParagraphSelect(p, editor) {
     // 選択（チェックON）
     p.classList.add('para-selected');
     
-    // チェックボックススパンを左端に生成
+    // チェックボックススパンを左端に生成（鮮烈に目立つ赤レ点 ✔）
     const chk = document.createElement('span');
     chk.className = 'para-checkbox';
     chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
-    chk.innerHTML = '☑️';
+    chk.innerHTML = '✔';
     chk.style.marginRight = '0.5rem';
     chk.style.userSelect = 'none';
+    chk.style.color = '#ef4444'; // 鮮烈な赤
+    chk.style.fontWeight = '900'; // 太字
+    chk.style.fontSize = '1.1rem'; // やや大きめ
     
     p.insertBefore(chk, p.firstChild);
 
