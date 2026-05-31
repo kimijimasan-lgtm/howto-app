@@ -1606,12 +1606,42 @@ function showUndoToast(editor) {
 
 // ── PCからスマホへの同期用QRコードモーダル ──────────
 function showQRCodeModal() {
+  const url = window.location.href;
+  const isLocalFile = url.startsWith('file:');
+  const isLocalhost = url.includes('localhost') || url.includes('127.0.0.1');
+
+  let localWarningHTML = '';
+  if (isLocalFile) {
+    localWarningHTML = `
+      <div style="background: rgba(239, 68, 68, 0.15); border-radius: 12px; padding: 0.75rem; border: 1.5px dashed #ef4444; margin-top: 0.5rem; text-align: left; margin-bottom: 1.25rem;">
+        <span style="font-size: 0.85rem; font-weight: 800; color: #f87171; display: block; margin-bottom: 0.25rem;">💡 スマホで表示されない原因：</span>
+        <span style="font-size: 0.75rem; color: #e5e7eb; line-height: 1.55; display: block;">
+          PCでHTMLファイルを直接ダブルクリックして開いているため（file:/// 形式）、スマホからPCのファイルを読み取ることができません。<br>
+          <strong style="color: #f97316; display: block; margin-top: 0.35rem; margin-bottom: 0.15rem;">【解決策】</strong>
+          このメモアプリを Netlify や GitHub Pages などのサーバーにアップロード（デプロイ）し、その「公開されたURL（https://...）」でPCとスマホの両方からアクセスしてください。
+        </span>
+      </div>
+    `;
+  } else if (isLocalhost) {
+    localWarningHTML = `
+      <div style="background: rgba(245, 158, 11, 0.15); border-radius: 12px; padding: 0.75rem; border: 1.5px dashed #f59e0b; margin-top: 0.5rem; text-align: left; margin-bottom: 1.25rem;">
+        <span style="font-size: 0.85rem; font-weight: 800; color: #fbbf24; display: block; margin-bottom: 0.25rem;">💡 スマホで表示されない原因：</span>
+        <span style="font-size: 0.75rem; color: #e5e7eb; line-height: 1.55; display: block;">
+          PCでローカル開発サーバー（localhost）を起動しているため、スマホがPCの場所を特定できません。<br>
+          <strong style="color: #fbbf24; display: block; margin-top: 0.35rem; margin-bottom: 0.15rem;">【解決策】</strong>
+          1. PCとスマホを<strong>「同じWi-Fi」</strong>に接続します。<br>
+          2. PCのIPアドレス（例: 192.168.X.X）を調べ、ブラウザで <code>http://[PCのIPアドレス]:[ポート番号]</code> で開いた状態でQRコードを表示させてください。
+        </span>
+      </div>
+    `;
+  }
+
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'qrModalOverlay';
   overlay.innerHTML = `
     <div class="modal-overlay" style="position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-      <div class="modal-box" style="border: 2px solid #ef4444; max-width: 340px; text-align: center; background: #1c2230; padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+      <div class="modal-box" style="border: 2px solid #ef4444; max-width: 360px; text-align: center; background: #1c2230; padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
         <div style="background: rgba(239, 68, 68, 0.1); border-radius: 12px; padding: 0.75rem; border: 1px solid rgba(239, 68, 68, 0.3); margin-bottom: 1.25rem;">
           <span style="font-size: 1.25rem; display: block; margin-bottom: 0.35rem; font-weight: 800; color: #f87171;">⚠️【厳重注意】</span>
           <span style="font-size: 0.8rem; font-weight: 700; color: #fca5a5; line-height: 1.55; display: block;">
@@ -1622,6 +1652,7 @@ function showQRCodeModal() {
         <div style="background: #fff; padding: 1rem; border-radius: 16px; display: inline-block; box-shadow: 0 4px 16px rgba(0,0,0,0.3); margin-bottom: 1.25rem;">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.href)}" alt="スマホ連動用QRコード" style="display: block; width: 200px; height: 200px; image-rendering: pixelated;"/>
         </div>
+        ${localWarningHTML}
         <button class="btn-secondary" id="qrCloseBtn" style="width: 100%; border-radius: 12px; padding: 0.75rem; font-weight: 700;">閉じる</button>
       </div>
     </div>
