@@ -13,12 +13,25 @@
       errDiv.style.zIndex = '999999';
       errDiv.style.fontFamily = 'monospace';
       errDiv.style.overflow = 'auto';
+      
+      let extraTip = '';
+      if (message === 'Script error.') {
+        extraTip = `
+          <div style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; margin-top: 1.5rem; font-family: sans-serif; line-height: 1.6; color: #fff;">
+            <strong>💡 【CORSによる隠蔽が発生しています】</strong><br>
+            このエラーはブラウザのセキュリティ（CORS）制限によって詳細が隠されています。<br>
+            PCで開いている場合は、キーボードの<strong>「F12キー」</strong>（または右クリックして「検証・調査」）を押し、一番上の<strong>「コンソール（Console）」</strong>タブを開くと、赤文字で本物のエラー原因と行数が表示されます！そちらを教えてください！
+          </div>
+        `;
+      }
+
       errDiv.innerHTML = `
         <h1 style="font-size: 1.5rem; margin-bottom: 1rem;">🚨 JavaScript Runtime Error</h1>
         <p><strong>Error:</strong> ${message}</p>
         <p><strong>Source:</strong> ${source}</p>
         <p><strong>Line:</strong> ${lineno} : ${colno}</p>
         <pre style="background: #450a0a; padding: 1rem; border-radius: 8px; margin-top: 1rem; white-space: pre-wrap;">${error ? error.stack : ''}</pre>
+        ${extraTip}
       `;
       document.body.appendChild(errDiv);
       return false;

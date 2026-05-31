@@ -3,6 +3,33 @@
 //  Firebase Realtime Database (CDN compat)
 // ============================================
 
+// ── Firebase CDN 読み込みエラー検出 ──
+if (typeof firebase === 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const errDiv = document.createElement('div');
+    errDiv.style.position = 'fixed';
+    errDiv.style.inset = '0';
+    errDiv.style.background = '#1e293b';
+    errDiv.style.color = '#f1f5f9';
+    errDiv.style.padding = '2rem';
+    errDiv.style.zIndex = '999999';
+    errDiv.style.fontFamily = 'sans-serif';
+    errDiv.innerHTML = `
+      <h1 style="font-size: 1.5rem; color: #f43f5e; margin-bottom: 1rem;">⚠️ アプリ起動エラー</h1>
+      <p style="font-weight: 700;">インターネット環境がないか、セキュリティによりアプリが起動できません。</p>
+      <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; margin-top: 1rem; font-size: 0.9rem; line-height: 1.6;">
+        <strong>原因の可能性：</strong><br>
+        1. PC/スマホがインターネットに接続されていない（オフライン）。<br>
+        2. HTMLファイルを直接ダブルクリックで開いているため、ブラウザのセキュリティ機能でFirebaseライブラリの読み込みが遮断されている。<br><br>
+        <strong>解決策：</strong><br>
+        GitHub Pages や Netlify にデプロイし、<code>https://...</code> から始まる公開URLで接続してください。
+      </div>
+    `;
+    document.body.appendChild(errDiv);
+  });
+  throw new Error("Firebase library is not loaded");
+}
+
 // ── Firebase 初期化 ──────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCWRY0dXtRqybI048q0btT-kW-rMnHfiW8",
