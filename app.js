@@ -61,6 +61,8 @@ let navHistory  = [];   // 画面履歴スタック
 let isDragging  = false; // ドラッグ並び替え中ガードフラグ
 let paraSortable = null;
 let paraSwipeListeners = [];
+let justEditedArticleId = null;  // 直前に編集したカードのID（フラッシュ明滅用）
+let lastDeletedContent = null;   // 削除直前のエディタHTML（Undo用）
 
 // ── エディター内容の即時強制保存 ─────────────────
 function forceSaveEditorContent() {
@@ -70,6 +72,13 @@ function forceSaveEditorContent() {
   
   if (saveTimer) clearTimeout(saveTimer);
   
+  // 空の場合は自動削除
+  if (isEditorEmpty(editor)) {
+    deleteArticleSilently();
+    cleanupNativeParagraphListeners(editor);
+    return;
+  }
+
   // 保存時は確実にスワイプなどの付帯タグを取り除いたクリーンなHTMLを保存する
   const cleanHTML = getCleanEditorHTML(editor);
   
@@ -85,7 +94,10 @@ function forceSaveEditorContent() {
 // ── 画面遷移 ─────────────────────────────────
 function goTo(screen, categoryId = null, articleId = null) {
   // エディターから遷移する場合は即座に強制保存
-  if (state.screen === 'editor') forceSaveEditorContent();
+  if (state.screen === 'editor') {
+    justEditedArticleId = state.articleId;
+    forceSaveEditorContent();
+  }
 
   // 履歴管理
   if (screen === 'home') {
@@ -118,7 +130,10 @@ function goBack() {
   if (navHistory.length === 0) return;
 
   // エディターから戻る場合は即座に強制保存
-  if (state.screen === 'editor') forceSaveEditorContent();
+  if (state.screen === 'editor') {
+    justEditedArticleId = state.articleId;
+    forceSaveEditorContent();
+  }
 
   const prev = navHistory.pop();
 
@@ -237,13 +252,18 @@ function addPullToCreate(el) {
 
 // ── HTML → 行配列（安全な改行認識） ──────────────
 function htmlToLines(html) {
+  if (!html) return [];
   const tmp = document.createElement('div');
-  tmp.innerHTML = (html || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi,   '\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<\/li>/gi,  '\n');
-  return (tmp.textContent || '').split('\n').map(l => l.trim()).filter(Boolean);
+  tmp.innerHTML = html;
+  
+  // スワイプチェックボックス ✔ など一時要素はパースから排除する
+  const checkmarks = tmp.querySelectorAll('.para-checkbox');
+  checkmarks.forEach(c => c.remove());
+
+  const text = tmp.innerText || tmp.textContent || '';
+  return text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
 }
 
 // ── Markdown 記号を除去 ────────────────────────
@@ -544,6 +564,16 @@ function renderCategory(container) {
       li.className = 'article-item';
       li.dataset.id = art.id;
       li.style.animationDelay = `${i * 40}ms`;
+
+      // 直前編集カードのフラッシュ効果（2秒間）
+      if (art.id === justEditedArticleId) {
+        li.classList.add('just-edited');
+        setTimeout(() => {
+          li.classList.remove('just-edited');
+        }, 2000);
+        // 一度適用した後はクリア
+        justEditedArticleId = null;
+      }
       li.innerHTML = `
         <div class="article-inner">
           <div class="article-title">${esc(title)}</div>
@@ -747,6 +777,13 @@ function showExportAllModal(catId) {
               <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを改ページ付きで美しくPDFファイルとして保存します</div>
             </div>
           </li>
+          <li class="btn-export-option" data-type="html" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
+            <span style="font-size: 1.5rem;">🌐</span>
+            <div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">HTML形式（画像・レイアウト維持一括保存）</div>
+              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">画像やスタイルを100%維持して、1つの美しいHTMLファイルとして保存します</div>
+            </div>
+          </li>
         </ul>
       </div>`;
     document.body.appendChild(overlay);
@@ -763,6 +800,7 @@ function showExportAllModal(catId) {
         if (type === 'text') typeName = 'テキスト連結（.txt一括出力）';
         if (type === 'md') typeName = 'Markdown連結（.md一括出力）';
         if (type === 'pdf') typeName = 'PDF形式（一括保存）';
+        if (type === 'html') typeName = 'HTML形式（画像・レイアウト維持一括保存）';
 
         if (confirm(`このカテゴリ内のすべてのメモを「${typeName}」でエクスポートします。よろしいですか？`)) {
           handleExportAllAction(type, articles);
@@ -781,24 +819,38 @@ function handleExportAllAction(type, articles) {
   const catName = catTitleEl ? catTitleEl.textContent : 'カテゴリ';
 
   if (type === 'copy') {
-    const textData = articles.map(art => {
+    let textData = `【${catName}】\n\n`;
+    textData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
-      return `■ ${title}\n${body}`;
-    }).join('\n\n----------------------------------------\n\n');
+      const articleText = `■ ${title}\n${body}`;
+      if (idx === 0) {
+        return articleText;
+      } else {
+        const pageNum = idx + 1;
+        return `\n\n----------------- 【ここから${pageNum}ページ目】 -----------------\n\n${articleText}`;
+      }
+    }).join('');
 
     navigator.clipboard.writeText(textData)
       .then(() => alert('全メモをクリップボードに一括コピーしました！'))
       .catch(() => alert('コピーに失敗しました。'));
   }
   else if (type === 'text') {
-    const textData = articles.map(art => {
+    let textData = `【${catName}】\n\n`;
+    textData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
-      return `■ ${title}\n${body}`;
-    }).join('\n\n----------------------------------------\n\n');
+      const articleText = `■ ${title}\n${body}`;
+      if (idx === 0) {
+        return articleText;
+      } else {
+        const pageNum = idx + 1;
+        return `\n\n----------------- 【ここから${pageNum}ページ目】 -----------------\n\n${articleText}`;
+      }
+    }).join('');
 
     const blob = new Blob([textData], { type: 'text/plain;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -809,12 +861,19 @@ function handleExportAllAction(type, articles) {
     URL.revokeObjectURL(url);
   }
   else if (type === 'md') {
-    const mdData = articles.map(art => {
+    let mdData = `# 【${catName}】\n\n`;
+    mdData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n\n');
-      return `# ${title}\n\n${body}`;
-    }).join('\n\n---\n\n');
+      const articleText = `## ${title}\n\n${body}`;
+      if (idx === 0) {
+        return articleText;
+      } else {
+        const pageNum = idx + 1;
+        return `\n\n---\n\n### 【ここから${pageNum}ページ目】\n\n${articleText}`;
+      }
+    }).join('');
 
     const blob = new Blob([mdData], { type: 'text/markdown;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -830,8 +889,21 @@ function handleExportAllAction(type, articles) {
       const title = lines[0] || '（タイトルなし）';
       const cleanBody = lines.slice(1).map(l => `<p>${esc(l)}</p>`).join('');
       const pageBreak = idx < articles.length - 1 ? 'style="page-break-after: always;"' : '';
+      
+      let headerHTML = '';
+      if (idx === 0) {
+        headerHTML = `<div style="font-size: 1.2rem; font-weight: 700; color: #4f46e5; margin-bottom: 2rem;">【${esc(catName)}】</div>`;
+      } else {
+        const pageNum = idx + 1;
+        headerHTML = `
+          <div style="text-align: center; margin: 2rem 0; color: #9ca3af; font-size: 0.9rem; font-weight: 500;">
+            ----------------- 【ここから${pageNum}ページ目】 -----------------
+          </div>`;
+      }
+
       return `
         <div class="article-pdf-section" ${pageBreak} style="margin-bottom: 3rem;">
+          ${headerHTML}
           <h1 style="border-bottom: 2px solid #374151; padding-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; margin-bottom: 2rem; color: #111827;">${esc(title)}</h1>
           <div class="content" style="font-size: 1.05rem; line-height: 1.85; color: #1f2937; word-break: break-all; white-space: pre-wrap;">${cleanBody}</div>
         </div>`;
@@ -851,6 +923,126 @@ function handleExportAllAction(type, articles) {
     };
 
     html2pdf().set(opt).from(element).save();
+  }
+  else if (type === 'html') {
+    const articlesHTML = articles.map((art, idx) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = art.content || '';
+      
+      const paragraphs = Array.from(temp.children);
+      let title = '（タイトルなし）';
+      let bodyHTML = '';
+      
+      if (paragraphs.length > 0) {
+        title = paragraphs[0].textContent || paragraphs[0].innerText || '（タイトルなし）';
+        bodyHTML = paragraphs.slice(1).map(p => {
+          // para-checkbox は除外してエクスポート
+          const pClone = p.cloneNode(true);
+          const chk = pClone.querySelector('.para-checkbox');
+          if (chk) chk.remove();
+          pClone.classList.remove('para-selected');
+          pClone.removeAttribute('class');
+          return pClone.outerHTML;
+        }).join('');
+      } else {
+        bodyHTML = '<p><br></p>';
+      }
+
+      let separatorHTML = '';
+      if (idx > 0) {
+        const pageNum = idx + 1;
+        separatorHTML = `<div class="page-separator">----------------- 【ここから${pageNum}ページ目】 -----------------</div>`;
+      }
+
+      return `
+        ${separatorHTML}
+        <div class="article-section">
+          <h2 class="article-title">${esc(title)}</h2>
+          <div class="article-body">
+            ${bodyHTML}
+          </div>
+        </div>`;
+    }).join('');
+
+    const fullHTML = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(catName)} - 一括エクスポート</title>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif;
+      line-height: 1.7;
+      padding: 2rem 1rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .category-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #818cf8;
+      border-bottom: 2px solid #312e81;
+      padding-bottom: 0.5rem;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+    .article-section {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .article-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-top: 0;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #374151;
+      padding-bottom: 0.5rem;
+    }
+    .article-body {
+      color: #d1d5db;
+    }
+    .article-body p {
+      margin: 0.5rem 0;
+      min-height: 1em;
+    }
+    .article-body img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin: 0.75rem 0;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    .page-separator {
+      text-align: center;
+      margin: 2.5rem 0;
+      color: #6b7280;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="category-title">【${esc(catName)}】</div>
+  ${articlesHTML}
+</body>
+</html>`;
+
+    const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${catName}_一括エクスポート.html`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -932,10 +1124,19 @@ function renderEditor(container) {
   if (bulkDelBtn) {
     bulkDelBtn.onclick = () => {
       const editor = document.getElementById('edContent');
+      
+      // 削除前のHTMLを退避
+      lastDeletedContent = getCleanEditorHTML(editor);
+
       const selectedParas = editor.querySelectorAll('p.para-selected');
+      if (selectedParas.length === 0) return;
+
       selectedParas.forEach(p => p.remove());
       saveEditorContentDirectly(editor);
       updateBulkDeleteButtonState(editor);
+
+      // 元に戻すトーストを表示
+      showUndoToast(editor);
     };
   }
   addSwipeBack(container, () => goBack());
@@ -956,7 +1157,63 @@ function renderEditor(container) {
   }
 
   document.getElementById('edContent').addEventListener('paste', e => {
-    e.preventDefault(); // デフォルトの貼り付けを阻止
+    // クリップボードのアイテムを確認（画像貼り付けの復元）
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    let hasImage = false;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault(); // デフォルト処理を阻止
+        hasImage = true;
+        
+        const file = items[i].getAsFile();
+        const reader = new FileReader();
+        
+        reader.onload = function(evt) {
+          const base64Src = evt.target.result;
+          
+          // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
+          const img = document.createElement('img');
+          img.src = base64Src;
+          img.style.maxWidth = '100%';
+          img.style.height = 'auto';
+          img.style.borderRadius = '12px';
+          img.style.margin = '0.75rem 0';
+          img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+          img.style.display = 'block';
+
+          // 現在のカーソル位置に画像を挿入
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            range.deleteFromDocument();
+            range.insertNode(img);
+            
+            // カーソルを画像の後ろに移動させるために、空のpを画像の後ろに添える
+            const p = document.createElement('p');
+            p.appendChild(document.createElement('br'));
+            img.after(p);
+            
+            range.setStartAfter(img);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            document.getElementById('edContent').appendChild(img);
+          }
+          
+          // inputイベントを発火して自動保存
+          document.getElementById('edContent').dispatchEvent(new Event('input'));
+        };
+        
+        reader.readAsDataURL(file);
+        break; // 1枚のみ処理
+      }
+    }
+
+    if (hasImage) return; // 画像処理を行った場合はここで終了
+
+    e.preventDefault(); // デフォルトの貼り付けを阻止（テキスト処理へ移行）
 
     // テキスト：プレーンテキストとしてデータを取得（スタイルを完全除去）
     let text = e.clipboardData.getData('text/plain');
@@ -970,8 +1227,9 @@ function renderEditor(container) {
     }
 
     if (text) {
-      // 1. 罫線もどきの除去とスペース整形
-      const cleanedText = cleanAndFormatBorderLines(text);
+      // 1. 実際のテーブル罫線文字（|, │, ┼, ├, ┤, ┌, ┐, └, ┘ 等）が含まれている場合のみ整形を実行する
+      const hasTableBorders = /[\|│┃┼├┤┌┐└┘＝＊◆■★☆｜┆┇┊┋┬┴]/g.test(text);
+      const cleanedText = hasTableBorders ? cleanAndFormatBorderLines(text) : text;
 
       // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
       const lines = cleanedText.split('\n');
@@ -985,7 +1243,7 @@ function renderEditor(container) {
           fragment.appendChild(p);
         } else {
           const p = document.createElement('p');
-          // textContentを使うことで行頭の半角・全角スペース（インデント）を100%忠実に保持
+          // textContentを使うことで行頭 of 半角・全角スペース（インデント）を100%忠実に保持
           p.textContent = line;
           fragment.appendChild(p);
         }
@@ -1000,7 +1258,7 @@ function renderEditor(container) {
         // フラグメントを挿入
         range.insertNode(fragment);
         
-        // カーソルを挿入したコンテンツの末尾に移動
+        // カーソルを挿入したコンテンツ of 末尾に移動
         range.collapse(false);
         sel.removeAllRanges();
         sel.addRange(range);
@@ -1012,7 +1270,7 @@ function renderEditor(container) {
     }
   });
 
-  // \u521d\u671f\u30b3\u30f3\u30c6\u30f3\u30c4\u8aad\u307f\u8fbc\u307f
+  // 初期コンテンツ読み込み
   db.ref(`articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
     const editor = document.getElementById('edContent');
     const status = document.getElementById('saveStatus');
@@ -1069,6 +1327,11 @@ function renderEditor(container) {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
+          // 完全に空なら自動カード削除
+          if (isEditorEmpty(editor)) {
+            await deleteArticleSilently();
+            return;
+          }
           const cleanHTML = getCleanEditorHTML(editor);
           await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
             content: cleanHTML, updatedAt: Date.now()
@@ -1085,27 +1348,26 @@ function renderEditor(container) {
 }
 
 async function deleteArticle() {
+  if (!confirm("このメモを完全に削除します。よろしいですか？")) return;
   await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
   goTo('category', state.categoryId);
 }
 
-// ── ユーティリティ ───────────────────────────
-function getVirtualLength(str) {
-  let len = 0;
-  for (let i = 0; i < (str || '').length; i++) {
-    if (str.charCodeAt(i) <= 127) {
-      len += 0.5;
-    } else {
-      len += 1.0;
-    }
-  }
-  return len;
+// 直接Firebaseから無音でカードを完全削除する（最後の段落削除時）
+async function deleteArticleSilently() {
+  if (!state.articleId || !state.categoryId) return;
+  await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
+  goTo('category', state.categoryId);
 }
 
-function esc(str) {
-  return String(str || '').replace(/[&<>'"]/g, c =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c])
-  );
+// エディタのプレーンなコンテンツが完全に空であるかを判定
+function isEditorEmpty(editor) {
+  const cleanHTML = getCleanEditorHTML(editor).trim();
+  const temp = document.createElement('div');
+  temp.innerHTML = cleanHTML;
+  const text = temp.textContent || temp.innerText || '';
+  const hasImage = temp.querySelector('img') !== null;
+  return text.trim() === '' && !hasImage;
 }
 
 // ── 段落の常時スワイプ一括削除制御 ─────────────────
@@ -1131,7 +1393,7 @@ function initializeNativeParagraphActions(editor) {
 
   // エディタ外のクリックで解除
   const outsideClickListener = (e) => {
-    if (!editor.contains(e.target) && !e.target.closest('#btnBulkDelete')) {
+    if (!editor.contains(e.target) && !e.target.closest('#btnBulkDelete') && !e.target.closest('#undo-toast')) {
       cleanupAllSwipedParagraphs(editor);
     }
   };
@@ -1159,11 +1421,6 @@ function toggleParagraphSelect(p, editor) {
     chk.className = 'para-checkbox';
     chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
     chk.innerHTML = '✔';
-    chk.style.marginRight = '0.5rem';
-    chk.style.userSelect = 'none';
-    chk.style.color = '#ef4444'; // 鮮烈な赤
-    chk.style.fontWeight = '900'; // 太字
-    chk.style.fontSize = '1.1rem'; // やや大きめ
     
     p.insertBefore(chk, p.firstChild);
 
@@ -1229,8 +1486,15 @@ function getCleanEditorHTML(editor) {
 }
 
 // 直接FirebaseにクリーンHTMLを同期保存
-function saveEditorContentDirectly(editor) {
+async function saveEditorContentDirectly(editor) {
   if (!editor || !state.articleId || !state.categoryId) return;
+
+  // 完全に空なら自動カード削除
+  if (isEditorEmpty(editor)) {
+    await deleteArticleSilently();
+    return;
+  }
+
   const cleanHTML = getCleanEditorHTML(editor);
   db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
@@ -1291,6 +1555,53 @@ function cleanupNativeParagraphListeners(editor) {
     document.removeEventListener('click', activeGlobalEditorClickCleanup);
     activeGlobalEditorClickCleanup = null;
   }
+}
+
+// Undo（元に戻す）トーストの表示
+let undoToastTimeout = null;
+function showUndoToast(editor) {
+  const existing = document.getElementById('undo-toast');
+  if (existing) {
+    existing.remove();
+    if (undoToastTimeout) clearTimeout(undoToastTimeout);
+  }
+
+  const toast = document.createElement('div');
+  toast.id = 'undo-toast';
+  toast.className = 'undo-toast-wrapper';
+  toast.innerHTML = `
+    <div class="undo-toast-box">
+      <span>段落を削除しました</span>
+      <button class="undo-btn" id="btnUndoAction">元に戻す</button>
+    </div>
+  `;
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+  });
+
+  const hideToast = () => {
+    toast.classList.remove('visible');
+    toast.classList.add('hiding');
+    setTimeout(() => toast.remove(), 400);
+  };
+
+  document.getElementById('btnUndoAction').onclick = async (e) => {
+    e.stopPropagation();
+    if (lastDeletedContent !== null) {
+      editor.innerHTML = lastDeletedContent;
+      await saveEditorContentDirectly(editor);
+      initializeNativeParagraphActions(editor);
+      updateBulkDeleteButtonState(editor);
+      lastDeletedContent = null;
+    }
+    hideToast();
+  };
+
+  undoToastTimeout = setTimeout(() => {
+    hideToast();
+  }, 4000);
 }
 
 // ── PCからスマホへの同期用QRコードモーダル ──────────
