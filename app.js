@@ -1392,6 +1392,25 @@ function isEditorEmpty(editor) {
   return text.trim() === '' && !hasImage;
 }
 
+// ── ユーティリティ ───────────────────────────
+function getVirtualLength(str) {
+  let len = 0;
+  for (let i = 0; i < (str || '').length; i++) {
+    if (str.charCodeAt(i) <= 127) {
+      len += 0.5;
+    } else {
+      len += 1.0;
+    }
+  }
+  return len;
+}
+
+function esc(str) {
+  return String(str || '').replace(/[&<>'"]/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c])
+  );
+}
+
 // ── 段落の常時スワイプ一括削除制御 ─────────────────
 let activeGlobalEditorClickCleanup = null;
 
