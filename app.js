@@ -112,9 +112,9 @@ function forceSaveEditorContent() {
 }
 
 // ── 画面遷移 ─────────────────────────────────
-function goTo(screen, categoryId = null, articleId = null) {
+function goTo(screen, categoryId = null, articleId = null, skipSave = false) {
   // エディターから遷移する場合は即座に強制保存
-  if (state.screen === 'editor') {
+  if (state.screen === 'editor' && !skipSave) {
     justEditedArticleId = state.articleId;
     forceSaveEditorContent();
   }
@@ -146,11 +146,11 @@ function goTo(screen, categoryId = null, articleId = null) {
 }
 
 // ── 1つ前の画面へ戻る ────────────────────────
-function goBack() {
+function goBack(skipSave = false) {
   if (navHistory.length === 0) return;
 
   // エディターから戻る場合は即座に強制保存
-  if (state.screen === 'editor') {
+  if (state.screen === 'editor' && !skipSave) {
     justEditedArticleId = state.articleId;
     forceSaveEditorContent();
   }
@@ -182,6 +182,10 @@ function addSwipeBack(el, onSwipe) {
     sy = e.touches[0].clientY;
   };
   const onEnd = e => {
+    // 文字選択（範囲選択）中、またはエディタ内からのスワイプは無効化する（右ドラッグによるホーム遷移を防ぐ）
+    if (window.getSelection().toString() !== '') return;
+    if (e.target.closest('#edContent')) return;
+
     const dx = e.changedTouches[0].clientX - sx;
     const dy = Math.abs(e.changedTouches[0].clientY - sy);
     // 横方向の移動が縦の移動の2倍以上の場合のみ実行（斜めスワイプを厳格に排除）
@@ -280,10 +284,23 @@ function htmlToLines(html) {
   const checkmarks = tmp.querySelectorAll('.para-checkbox');
   checkmarks.forEach(c => c.remove());
 
-  const text = tmp.innerText || tmp.textContent || '';
-  return text.split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0);
+  // 子要素から行を抽出する（innerTextが未ロードDOMで改行を無視する問題を回避）
+  const lines = [];
+  Array.from(tmp.children).forEach(child => {
+    const txt = child.textContent.trim();
+    if (txt) {
+      lines.push(txt);
+    }
+  });
+
+  // 子要素が全くないフラットなテキストの場合のフォールバック
+  if (lines.length === 0 && tmp.textContent.trim()) {
+    return tmp.textContent.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+  }
+
+  return lines;
 }
 
 // ── Markdown 記号を除去 ────────────────────────
@@ -590,9 +607,8 @@ function renderCategory(container) {
         li.classList.add('just-edited');
         setTimeout(() => {
           li.classList.remove('just-edited');
+          justEditedArticleId = null; // アニメーション終了後にクリア
         }, 2000);
-        // 一度適用した後はクリア
-        justEditedArticleId = null;
       }
       li.innerHTML = `
         <div class="article-inner">
@@ -849,7 +865,7 @@ function handleExportAllAction(type, articles) {
         return articleText;
       } else {
         const pageNum = idx + 1;
-        return `\n\n----------------- 【ここから${pageNum}ページ目】 -----------------\n\n${articleText}`;
+        return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
 
@@ -868,7 +884,7 @@ function handleExportAllAction(type, articles) {
         return articleText;
       } else {
         const pageNum = idx + 1;
-        return `\n\n----------------- 【ここから${pageNum}ページ目】 -----------------\n\n${articleText}`;
+        return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
 
@@ -891,7 +907,7 @@ function handleExportAllAction(type, articles) {
         return articleText;
       } else {
         const pageNum = idx + 1;
-        return `\n\n---\n\n### 【ここから${pageNum}ページ目】\n\n${articleText}`;
+        return `\n\n### 【ここから${pageNum}ページ目】\n\n${articleText}`;
       }
     }).join('');
 
@@ -917,7 +933,7 @@ function handleExportAllAction(type, articles) {
         const pageNum = idx + 1;
         headerHTML = `
           <div style="text-align: center; margin: 2rem 0; color: #9ca3af; font-size: 0.9rem; font-weight: 500;">
-            ----------------- 【ここから${pageNum}ページ目】 -----------------
+            ---- 【ここから${pageNum}ページ目】 ----
           </div>`;
       }
 
@@ -971,7 +987,7 @@ function handleExportAllAction(type, articles) {
       let separatorHTML = '';
       if (idx > 0) {
         const pageNum = idx + 1;
-        separatorHTML = `<div class="page-separator">----------------- 【ここから${pageNum}ページ目】 -----------------</div>`;
+        separatorHTML = `<div class="page-separator">---- 【ここから${pageNum}ページ目】 ----</div>`;
       }
 
       return `
@@ -1185,7 +1201,9 @@ function renderEditor(container) {
 
   document.getElementById('edContent').addEventListener('paste', e => {
     // クリップボードのアイテムを確認（画像貼り付けの復元）
-    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    const clipboardData = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+    if (!clipboardData) return;
+    const items = clipboardData.items;
     let hasImage = false;
 
     for (let i = 0; i < items.length; i++) {
@@ -1254,8 +1272,9 @@ function renderEditor(container) {
     }
 
     if (text) {
-      // 1. 実際のテーブル罫線文字（|, │, ┼, ├, ┤, ┌, ┐, └, ┘ 等）が含まれている場合のみ整形を実行する
-      const hasTableBorders = /[\|│┃┼├┤┌┐└┘＝＊◆■★☆｜┆┇┊┋┬┴]/g.test(text);
+      // 1. 実際のテーブル罫線文字（|, │ 等）が複数（3つ以上）含まれている場合のみ整形を実行する（単発の縦棒での誤作動を防ぐ）
+      const borderMatches = text.match(/[\|│┃┼├┤┌┐└┘＝＊◆■★☆｜┆┇┊┋┬┴]/g);
+      const hasTableBorders = borderMatches && borderMatches.length >= 3;
       const cleanedText = hasTableBorders ? cleanAndFormatBorderLines(text) : text;
 
       // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
@@ -1372,14 +1391,14 @@ function renderEditor(container) {
 async function deleteArticle() {
   if (!confirm("このメモを完全に削除します。よろしいですか？")) return;
   await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
-  goTo('category', state.categoryId);
+  goTo('category', state.categoryId, null, true);
 }
 
 // 直接Firebaseから無音でカードを完全削除する（最後の段落削除時）
 async function deleteArticleSilently() {
   if (!state.articleId || !state.categoryId) return;
   await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
-  goTo('category', state.categoryId);
+  goTo('category', state.categoryId, null, true);
 }
 
 // エディタのプレーンなコンテンツが完全に空であるかを判定
@@ -1461,7 +1480,11 @@ function toggleParagraphSelect(p, editor) {
     const chk = document.createElement('span');
     chk.className = 'para-checkbox';
     chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
-    chk.innerHTML = '✔';
+    chk.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    `;
     
     p.insertBefore(chk, p.firstChild);
 
