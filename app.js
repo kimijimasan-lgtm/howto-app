@@ -72,13 +72,6 @@ function forceSaveEditorContent() {
   
   if (saveTimer) clearTimeout(saveTimer);
   
-  // 空の場合は自動削除
-  if (isEditorEmpty(editor)) {
-    deleteArticleSilently();
-    cleanupNativeParagraphListeners(editor);
-    return;
-  }
-
   // 保存時は確実にスワイプなどの付帯タグを取り除いたクリーンなHTMLを保存する
   const cleanHTML = getCleanEditorHTML(editor);
   
@@ -1132,6 +1125,13 @@ function renderEditor(container) {
       if (selectedParas.length === 0) return;
 
       selectedParas.forEach(p => p.remove());
+
+      // 完全に空なら自動カード削除
+      if (isEditorEmpty(editor)) {
+        deleteArticleSilently();
+        return;
+      }
+
       saveEditorContentDirectly(editor);
       updateBulkDeleteButtonState(editor);
 
@@ -1327,11 +1327,6 @@ function renderEditor(container) {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
-          // 完全に空なら自動カード削除
-          if (isEditorEmpty(editor)) {
-            await deleteArticleSilently();
-            return;
-          }
           const cleanHTML = getCleanEditorHTML(editor);
           await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
             content: cleanHTML, updatedAt: Date.now()
@@ -1486,15 +1481,8 @@ function getCleanEditorHTML(editor) {
 }
 
 // 直接FirebaseにクリーンHTMLを同期保存
-async function saveEditorContentDirectly(editor) {
+function saveEditorContentDirectly(editor) {
   if (!editor || !state.articleId || !state.categoryId) return;
-
-  // 完全に空なら自動カード削除
-  if (isEditorEmpty(editor)) {
-    await deleteArticleSilently();
-    return;
-  }
-
   const cleanHTML = getCleanEditorHTML(editor);
   db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
