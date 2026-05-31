@@ -860,16 +860,16 @@ function handleExportAllAction(type, articles) {
   const catName = catTitleEl ? catTitleEl.textContent : 'カテゴリ';
 
   if (type === 'copy') {
-    let textData = `【${catName}】\n\n`;
+    let textData = `【${catName}】\n【1ページ目】\n\n`;
     textData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
+      const articleText = `■ ${title}\n${body}`;
       if (idx === 0) {
-        return `■ ${title}\n【1ページ目】\n${body}`;
+        return articleText;
       } else {
         const pageNum = idx + 1;
-        const articleText = `■ ${title}\n${body}`;
         return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
@@ -879,16 +879,16 @@ function handleExportAllAction(type, articles) {
       .catch(() => alert('コピーに失敗しました。'));
   }
   else if (type === 'text') {
-    let textData = `【${catName}】\n\n`;
+    let textData = `【${catName}】\n【1ページ目】\n\n`;
     textData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
+      const articleText = `■ ${title}\n${body}`;
       if (idx === 0) {
-        return `■ ${title}\n【1ページ目】\n${body}`;
+        return articleText;
       } else {
         const pageNum = idx + 1;
-        const articleText = `■ ${title}\n${body}`;
         return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
@@ -902,16 +902,16 @@ function handleExportAllAction(type, articles) {
     URL.revokeObjectURL(url);
   }
   else if (type === 'md') {
-    let mdData = `# 【${catName}】\n\n`;
+    let mdData = `# 【${catName}】\n【1ページ目】\n\n`;
     mdData += articles.map((art, idx) => {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n\n');
+      const articleText = `## ${title}\n\n${body}`;
       if (idx === 0) {
-        return `## ${title}\n\n【1ページ目】\n\n${body}`;
+        return articleText;
       } else {
         const pageNum = idx + 1;
-        const articleText = `## ${title}\n\n${body}`;
         return `\n\n### 【ここから${pageNum}ページ目】\n\n${articleText}`;
       }
     }).join('');
@@ -1230,50 +1230,91 @@ function renderEditor(container) {
             try {
               const base64Src = evt.target.result;
               
-              // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
-              const img = document.createElement('img');
-              img.src = base64Src;
-              img.style.maxWidth = '100%';
-              img.style.height = 'auto';
-              img.style.borderRadius = '12px';
-              img.style.margin = '0.75rem 0';
-              img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-              img.style.display = 'block';
-
-              // 現在のカーソル位置に画像を挿入
-              const sel = window.getSelection();
-              let inserted = false;
-              if (sel && sel.rangeCount) {
+              // ── 画像自動圧縮・リサイズ処理（フリーズ＆Firebase容量オーバー根絶） ──
+              const tempImg = new Image();
+              tempImg.onload = function() {
                 try {
-                  const range = sel.getRangeAt(0);
-                  range.deleteFromDocument();
-                  range.insertNode(img);
+                  const canvas = document.createElement('canvas');
+                  const ctx = canvas.getContext('2d');
                   
-                  // カーソルを画像の後ろに移動させるために、空のpを画像の後ろに添える
-                  const p = document.createElement('p');
-                  p.appendChild(document.createElement('br'));
+                  // 最大寸法（横幅または高さを 800px に制限）
+                  const MAX_SIZE = 800;
+                  let width = tempImg.width;
+                  let height = tempImg.height;
                   
-                  if (img.parentNode) {
-                    img.parentNode.insertBefore(p, img.nextSibling);
-                    range.setStartAfter(img);
-                    range.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                    inserted = true;
+                  if (width > MAX_SIZE || height > MAX_SIZE) {
+                    if (width > height) {
+                      height = Math.round((height * MAX_SIZE) / width);
+                      width = MAX_SIZE;
+                    } else {
+                      width = Math.round((width * MAX_SIZE) / height);
+                      height = MAX_SIZE;
+                    }
                   }
-                } catch (domErr) {
-                  console.warn("DOM Range insertion failed, fallback to appendChild:", domErr);
+                  
+                  canvas.width = width;
+                  canvas.height = height;
+                  
+                  // キャンバスに描画
+                  ctx.drawImage(tempImg, 0, 0, width, height);
+                  
+                  // 軽量なJPEGに圧縮 (品質0.75)
+                  const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+                  
+                  // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
+                  const img = document.createElement('img');
+                  img.src = compressedBase64;
+                  img.style.maxWidth = '100%';
+                  img.style.height = 'auto';
+                  img.style.borderRadius = '12px';
+                  img.style.margin = '0.75rem 0';
+                  img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+                  img.style.display = 'block';
+
+                  // 現在のカーソル位置に画像を挿入
+                  const sel = window.getSelection();
+                  let inserted = false;
+                  if (sel && sel.rangeCount) {
+                    try {
+                      const range = sel.getRangeAt(0);
+                      range.deleteFromDocument();
+                      range.insertNode(img);
+                      
+                      // コピペ後のカーソル追従用改行
+                      const p = document.createElement('p');
+                      p.appendChild(document.createElement('br'));
+                      
+                      if (img.parentNode) {
+                        img.parentNode.insertBefore(p, img.nextSibling);
+                        range.setStartAfter(img);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                        inserted = true;
+                      }
+                    } catch (domErr) {
+                      console.warn("DOM Range insertion failed, fallback to appendChild:", domErr);
+                    }
+                  }
+                  
+                  if (!inserted) {
+                    const editor = document.getElementById('edContent');
+                    if (editor) editor.appendChild(img);
+                  }
+                  
+                  // inputイベントを発火して自動保存
+                  const editor = document.getElementById('edContent');
+                  if (editor) editor.dispatchEvent(new Event('input'));
+                } catch (canvasErr) {
+                  console.error("Canvas compression failed:", canvasErr);
                 }
-              }
+              };
               
-              if (!inserted) {
-                const editor = document.getElementById('edContent');
-                if (editor) editor.appendChild(img);
-              }
+              tempImg.onerror = function() {
+                console.error("Failed to load image element for canvas compression.");
+              };
               
-              // inputイベントを発火して自動保存
-              const editor = document.getElementById('edContent');
-              if (editor) editor.dispatchEvent(new Event('input'));
+              tempImg.src = base64Src;
             } catch (loadErr) {
               console.error("Image loading processing failed:", loadErr);
             }
@@ -1310,15 +1351,17 @@ function renderEditor(container) {
       const fragment = document.createDocumentFragment();
 
       lines.forEach((line) => {
+        // 行頭・行末の不要なタブ文字(\t)や過剰なスペースをクリーンアップ
+        const cleanedLine = line.replace(/^\t+/, '').replace(/\t+$/, '').trimEnd();
+
         // 空行（改行のみ）は段落間の改行（空行）として再現
-        if (line.trim() === '') {
+        if (cleanedLine.trim() === '') {
           const p = document.createElement('p');
           p.appendChild(document.createElement('br'));
           fragment.appendChild(p);
         } else {
           const p = document.createElement('p');
-          // textContentを使うことで行頭 of 半角・全角スペース（インデント）を100%忠実に保持
-          p.textContent = line;
+          p.textContent = cleanedLine;
           fragment.appendChild(p);
         }
       });
@@ -1559,7 +1602,7 @@ function cleanupSingleParagraph(p) {
 // すべての段落の選択状態をクリーンアップ
 function cleanupAllSwipedParagraphs(editor) {
   if (!editor) return;
-  const selectedParas = Array.from(editor.querySelectorAll('p.para-selected'));
+  const selectedParas = Array.from(editor.querySelectorAll('.para-selected'));
   selectedParas.forEach(p => cleanupSingleParagraph(p));
   updateBulkDeleteButtonState(editor);
 }
@@ -1607,9 +1650,12 @@ function bindParagraphSwipeEvents(editor) {
     const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
 
     if (Math.abs(dx) > 50 && dy < 40) {
-      // タップされた位置から直近の段落(p要素)を特定
-      const p = e.target.closest('#edContent > p');
-      if (!p) return;
+      // タップされた位置からエディタ直下のブロック要素（段落）を特定
+      let p = e.target;
+      while (p && p.parentNode !== editor) {
+        p = p.parentNode;
+      }
+      if (!p || p === editor) return;
 
       if (dx < 0) {
         toggleParagraphSelect(p, editor);
