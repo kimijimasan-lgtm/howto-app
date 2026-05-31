@@ -177,14 +177,19 @@ function goBack(skipSave = false) {
 // ── 右スワイプで戻る ─────────────────────
 function addSwipeBack(el, onSwipe) {
   let sx = 0, sy = 0;
+  let startTime = 0;
   const onStart = e => {
     sx = e.touches[0].clientX;
     sy = e.touches[0].clientY;
+    startTime = Date.now();
   };
   const onEnd = e => {
-    // 文字選択（範囲選択）中、またはエディタ内からのスワイプは無効化する（右ドラッグによるホーム遷移を防ぐ）
+    // 文字選択（範囲選択）中である場合は絶対に無効化する
     if (window.getSelection().toString() !== '') return;
-    if (e.target.closest('#edContent')) return;
+
+    // タッチ時間（フリックの素早さ）を判定（300ms以上かかるゆっくりしたドラッグ選択などは除外）
+    const duration = Date.now() - startTime;
+    if (duration > 300) return;
 
     const dx = e.changedTouches[0].clientX - sx;
     const dy = Math.abs(e.changedTouches[0].clientY - sy);
@@ -860,11 +865,11 @@ function handleExportAllAction(type, articles) {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
-      const articleText = `■ ${title}\n${body}`;
       if (idx === 0) {
-        return articleText;
+        return `■ ${title}\n【1ページ目】\n${body}`;
       } else {
         const pageNum = idx + 1;
+        const articleText = `■ ${title}\n${body}`;
         return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
@@ -879,11 +884,11 @@ function handleExportAllAction(type, articles) {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n');
-      const articleText = `■ ${title}\n${body}`;
       if (idx === 0) {
-        return articleText;
+        return `■ ${title}\n【1ページ目】\n${body}`;
       } else {
         const pageNum = idx + 1;
+        const articleText = `■ ${title}\n${body}`;
         return `\n\n---- 【ここから${pageNum}ページ目】 ----\n\n${articleText}`;
       }
     }).join('');
@@ -902,11 +907,11 @@ function handleExportAllAction(type, articles) {
       const lines = htmlToLines(art.content);
       const title = lines[0] || '（タイトルなし）';
       const body = lines.slice(1).join('\n\n');
-      const articleText = `## ${title}\n\n${body}`;
       if (idx === 0) {
-        return articleText;
+        return `## ${title}\n\n【1ページ目】\n\n${body}`;
       } else {
         const pageNum = idx + 1;
+        const articleText = `## ${title}\n\n${body}`;
         return `\n\n### 【ここから${pageNum}ページ目】\n\n${articleText}`;
       }
     }).join('');
@@ -928,7 +933,11 @@ function handleExportAllAction(type, articles) {
       
       let headerHTML = '';
       if (idx === 0) {
-        headerHTML = `<div style="font-size: 1.2rem; font-weight: 700; color: #4f46e5; margin-bottom: 2rem;">【${esc(catName)}】</div>`;
+        headerHTML = `
+          <div style="font-size: 1.2rem; font-weight: 700; color: #4f46e5; margin-bottom: 2rem;">【${esc(catName)}】</div>
+          <div style="text-align: center; margin: 1rem 0 2rem 0; color: #9ca3af; font-size: 0.9rem; font-weight: 500;">
+            ---- 【1ページ目】 ----
+          </div>`;
       } else {
         const pageNum = idx + 1;
         headerHTML = `
@@ -988,6 +997,8 @@ function handleExportAllAction(type, articles) {
       if (idx > 0) {
         const pageNum = idx + 1;
         separatorHTML = `<div class="page-separator">---- 【ここから${pageNum}ページ目】 ----</div>`;
+      } else {
+        separatorHTML = `<div class="page-separator" style="margin-top: 0.5rem; margin-bottom: 1.5rem;">---- 【1ページ目】 ----</div>`;
       }
 
       return `
@@ -1200,63 +1211,80 @@ function renderEditor(container) {
   }
 
   document.getElementById('edContent').addEventListener('paste', e => {
-    // クリップボードのアイテムを確認（画像貼り付けの復元）
-    const clipboardData = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
-    if (!clipboardData) return;
-    const items = clipboardData.items;
-    let hasImage = false;
+    try {
+      // クリップボードのアイテムを確認（画像貼り付けの復元）
+      const clipboardData = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+      if (!clipboardData) return;
+      const items = clipboardData.items;
+      let hasImage = false;
 
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        e.preventDefault(); // デフォルト処理を阻止
-        hasImage = true;
-        
-        const file = items[i].getAsFile();
-        const reader = new FileReader();
-        
-        reader.onload = function(evt) {
-          const base64Src = evt.target.result;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault(); // デフォルト処理を阻止
+          hasImage = true;
           
-          // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
-          const img = document.createElement('img');
-          img.src = base64Src;
-          img.style.maxWidth = '100%';
-          img.style.height = 'auto';
-          img.style.borderRadius = '12px';
-          img.style.margin = '0.75rem 0';
-          img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-          img.style.display = 'block';
+          const file = items[i].getAsFile();
+          const reader = new FileReader();
+          
+          reader.onload = function(evt) {
+            try {
+              const base64Src = evt.target.result;
+              
+              // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
+              const img = document.createElement('img');
+              img.src = base64Src;
+              img.style.maxWidth = '100%';
+              img.style.height = 'auto';
+              img.style.borderRadius = '12px';
+              img.style.margin = '0.75rem 0';
+              img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+              img.style.display = 'block';
 
-          // 現在のカーソル位置に画像を挿入
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount) {
-            const range = sel.getRangeAt(0);
-            range.deleteFromDocument();
-            range.insertNode(img);
-            
-            // カーソルを画像の後ろに移動させるために、空のpを画像の後ろに添える
-            const p = document.createElement('p');
-            p.appendChild(document.createElement('br'));
-            img.after(p);
-            
-            range.setStartAfter(img);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          } else {
-            document.getElementById('edContent').appendChild(img);
-          }
+              // 現在のカーソル位置に画像を挿入
+              const sel = window.getSelection();
+              let inserted = false;
+              if (sel && sel.rangeCount) {
+                try {
+                  const range = sel.getRangeAt(0);
+                  range.deleteFromDocument();
+                  range.insertNode(img);
+                  
+                  // カーソルを画像の後ろに移動させるために、空のpを画像の後ろに添える
+                  const p = document.createElement('p');
+                  p.appendChild(document.createElement('br'));
+                  
+                  if (img.parentNode) {
+                    img.parentNode.insertBefore(p, img.nextSibling);
+                    range.setStartAfter(img);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    inserted = true;
+                  }
+                } catch (domErr) {
+                  console.warn("DOM Range insertion failed, fallback to appendChild:", domErr);
+                }
+              }
+              
+              if (!inserted) {
+                const editor = document.getElementById('edContent');
+                if (editor) editor.appendChild(img);
+              }
+              
+              // inputイベントを発火して自動保存
+              const editor = document.getElementById('edContent');
+              if (editor) editor.dispatchEvent(new Event('input'));
+            } catch (loadErr) {
+              console.error("Image loading processing failed:", loadErr);
+            }
+          };
           
-          // inputイベントを発火して自動保存
-          document.getElementById('edContent').dispatchEvent(new Event('input'));
-        };
-        
-        reader.readAsDataURL(file);
-        break; // 1枚のみ処理
+          reader.readAsDataURL(file);
+          break; // 1枚のみ処理
+        }
       }
-    }
 
-    if (hasImage) return; // 画像処理を行った場合はここで終了
+      if (hasImage) return; // 画像処理を行った場合はここで終了
 
     e.preventDefault(); // デフォルトの貼り付けを阻止（テキスト処理へ移行）
 
@@ -1272,9 +1300,9 @@ function renderEditor(container) {
     }
 
     if (text) {
-      // 1. 実際のテーブル罫線文字（|, │ 等）が複数（3つ以上）含まれている場合のみ整形を実行する（単発の縦棒での誤作動を防ぐ）
-      const borderMatches = text.match(/[\|│┃┼├┤┌┐└┘＝＊◆■★☆｜┆┇┊┋┬┴]/g);
-      const hasTableBorders = borderMatches && borderMatches.length >= 3;
+      // 1. 純粋なテーブル罫線記号（|, │ 等）が複数（3つ以上）含まれ、かつ改行が存在する場合のみテーブル整形を実行する
+      const borderMatches = text.match(/[\|│┃┼├┤┌┐└┘｜┆┇┊┋┬┴]/g);
+      const hasTableBorders = borderMatches && borderMatches.length >= 3 && text.includes('\n');
       const cleanedText = hasTableBorders ? cleanAndFormatBorderLines(text) : text;
 
       // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
@@ -1313,6 +1341,9 @@ function renderEditor(container) {
       }
       // 自動保存を動かすためにinputイベントを発火
       document.getElementById('edContent').dispatchEvent(new Event('input'));
+    }
+    } catch (pasteErr) {
+      console.error("Paste event listener error:", pasteErr);
     }
   });
 
@@ -1559,42 +1590,44 @@ function saveEditorContentDirectly(editor) {
   }).catch(err => console.error("Native select delete save error:", err));
 }
 
-// スワイプイベントのバインド
+// スワイプイベントのバインド (イベントデリゲーション方式)
 function bindParagraphSwipeEvents(editor) {
   cleanupNativeParagraphListeners(editor);
 
-  const paragraphs = Array.from(editor.children);
-  paragraphs.forEach(p => {
-    let txStart = 0, tyStart = 0;
-    const touchStartHandler = e => {
-      txStart = e.touches[0].clientX;
-      tyStart = e.touches[0].clientY;
-    };
-    const touchEndHandler = e => {
-      const dx = e.changedTouches[0].clientX - txStart;
-      const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
-      
-      if (window.getSelection().toString() !== '') return;
+  let txStart = 0, tyStart = 0;
+  const touchStartHandler = e => {
+    txStart = e.touches[0].clientX;
+    tyStart = e.touches[0].clientY;
+  };
+  const touchEndHandler = e => {
+    // 文字選択（範囲選択）中はフリップ動作をキャンセル
+    if (window.getSelection().toString() !== '') return;
 
-      if (Math.abs(dx) > 50 && dy < 40) {
-        if (dx < 0) {
+    const dx = e.changedTouches[0].clientX - txStart;
+    const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
+
+    if (Math.abs(dx) > 50 && dy < 40) {
+      // タップされた位置から直近の段落(p要素)を特定
+      const p = e.target.closest('#edContent > p');
+      if (!p) return;
+
+      if (dx < 0) {
+        toggleParagraphSelect(p, editor);
+      } else {
+        if (p.classList.contains('para-selected')) {
           toggleParagraphSelect(p, editor);
-        } else {
-          if (p.classList.contains('para-selected')) {
-            toggleParagraphSelect(p, editor);
-          }
         }
       }
-    };
+    }
+  };
 
-    p.addEventListener('touchstart', touchStartHandler, { passive: true });
-    p.addEventListener('touchend', touchEndHandler, { passive: true });
+  editor.addEventListener('touchstart', touchStartHandler, { passive: true });
+  editor.addEventListener('touchend',   touchEndHandler,   { passive: true });
 
-    paraSwipeListeners.push({
-      element: p,
-      start: touchStartHandler,
-      end: touchEndHandler
-    });
+  paraSwipeListeners.push({
+    element: editor,
+    start: touchStartHandler,
+    end: touchEndHandler
   });
 }
 
@@ -1615,12 +1648,12 @@ function cleanupNativeParagraphListeners(editor) {
 }
 
 // Undo（元に戻す）トーストの表示
-let undoToastTimeout = null;
 function showUndoToast(editor) {
   const existing = document.getElementById('undo-toast');
   if (existing) {
+    const oldCleanup = existing.cleanupEvents;
+    if (oldCleanup) oldCleanup();
     existing.remove();
-    if (undoToastTimeout) clearTimeout(undoToastTimeout);
   }
 
   const toast = document.createElement('div');
@@ -1641,8 +1674,36 @@ function showUndoToast(editor) {
   const hideToast = () => {
     toast.classList.remove('visible');
     toast.classList.add('hiding');
-    setTimeout(() => toast.remove(), 400);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 400);
+    if (cleanupListeners) cleanupListeners();
   };
+
+  // ユーザーの次の操作を監視して消去するイベントリスナー
+  const onNextAction = () => {
+    hideToast();
+  };
+
+  const cleanupListeners = () => {
+    editor.removeEventListener('keydown', onNextAction);
+    editor.removeEventListener('scroll', onNextAction);
+    document.removeEventListener('scroll', onNextAction);
+  };
+
+  // リスナー登録
+  editor.addEventListener('keydown', onNextAction, { passive: true });
+  editor.addEventListener('scroll', onNextAction, { passive: true });
+  document.addEventListener('scroll', onNextAction, { passive: true });
+
+  // 既存のトースト削除時にイベントを解除できるように参照を埋め込む
+  toast.cleanupEvents = cleanupListeners;
+
+  // 画面遷移時に必ず消えるよう listeners にも登録
+  listeners.push(() => {
+    cleanupListeners();
+    if (toast.parentNode) toast.remove();
+  });
 
   document.getElementById('btnUndoAction').onclick = async (e) => {
     e.stopPropagation();
@@ -1655,10 +1716,6 @@ function showUndoToast(editor) {
     }
     hideToast();
   };
-
-  undoToastTimeout = setTimeout(() => {
-    hideToast();
-  }, 4000);
 }
 
 // ── PCからスマホへの同期用QRコードモーダル ──────────
