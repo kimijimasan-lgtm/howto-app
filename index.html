@@ -2,6 +2,28 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
+  <script>
+    window.onerror = function(message, source, lineno, colno, error) {
+      const errDiv = document.createElement('div');
+      errDiv.style.position = 'fixed';
+      errDiv.style.inset = '0';
+      errDiv.style.background = '#7f1d1d';
+      errDiv.style.color = '#fecaca';
+      errDiv.style.padding = '2rem';
+      errDiv.style.zIndex = '999999';
+      errDiv.style.fontFamily = 'monospace';
+      errDiv.style.overflow = 'auto';
+      errDiv.innerHTML = `
+        <h1 style="font-size: 1.5rem; margin-bottom: 1rem;">🚨 JavaScript Runtime Error</h1>
+        <p><strong>Error:</strong> ${message}</p>
+        <p><strong>Source:</strong> ${source}</p>
+        <p><strong>Line:</strong> ${lineno} : ${colno}</p>
+        <pre style="background: #450a0a; padding: 1rem; border-radius: 8px; margin-top: 1rem; white-space: pre-wrap;">${error ? error.stack : ''}</pre>
+      `;
+      document.body.appendChild(errDiv);
+      return false;
+    };
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>PCスマホ連動メモ</title>
   <meta name="description" content="ハウツー・解説をカテゴリ別に管理するアプリ" />
