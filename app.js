@@ -4,7 +4,7 @@
 // ============================================
 
 // ── Firebase CDN 読み込みエラー検出 ──
-if (typeof firebase === 'undefined') {
+if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' || typeof firebase.auth === 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     const errDiv = document.createElement('div');
     errDiv.style.position = 'fixed';
@@ -14,20 +14,25 @@ if (typeof firebase === 'undefined') {
     errDiv.style.padding = '2rem';
     errDiv.style.zIndex = '999999';
     errDiv.style.fontFamily = 'sans-serif';
+    errDiv.style.lineHeight = '1.6';
+    
+    let reason = "インターネット環境がないか、セキュリティによりアプリが起動できません。";
+    if (typeof firebase !== 'undefined' && typeof firebase.auth === 'undefined') {
+      reason = "ブラウザの強力なキャッシュ機能により、古いHTMLと新しいプログラムが混ざって競合しています（認証ライブラリが未ロード）。";
+    }
+
     errDiv.innerHTML = `
-      <h1 style="font-size: 1.5rem; color: #f43f5e; margin-bottom: 1rem;">⚠️ アプリ起動エラー</h1>
-      <p style="font-weight: 700;">インターネット環境がないか、セキュリティによりアプリが起動できません。</p>
+      <h1 style="font-size: 1.5rem; color: #f43f5e; margin-bottom: 1rem;">⚠️ アプリ起動エラー（キャッシュ不整合）</h1>
+      <p style="font-weight: 700; margin-bottom: 1rem;">${reason}</p>
       <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; margin-top: 1rem; font-size: 0.9rem; line-height: 1.6;">
-        <strong>原因の可能性：</strong><br>
-        1. PC/スマホがインターネットに接続されていない（オフライン）。<br>
-        2. HTMLファイルを直接ダブルクリックで開いているため、ブラウザのセキュリティ機能でFirebaseライブラリの読み込みが遮断されている。<br><br>
-        <strong>解決策：</strong><br>
-        GitHub Pages や Netlify にデプロイし、<code>https://...</code> から始まる公開URLで接続してください。
+        <strong>💡 超簡単な解決策：</strong><br>
+        1. ブラウザで<strong>「ページを再読み込み（リロード）」</strong>を数回行ってください。<br>
+        2. それでも解消しない場合は、Safariの<strong>「プライベートブラウズモード」</strong>（Chromeの場合はシークレットモード）で開いていただくか、ブラウザのキャッシュ（履歴とWebサイトデータ）をクリアしてください。これで最新版が読み込まれて完全に解決します！
       </div>
     `;
     document.body.appendChild(errDiv);
   });
-  throw new Error("Firebase library is not loaded");
+  throw new Error("Firebase library is not loaded properly");
 }
 
 // ── Firebase 初期化 ──────────────────────────
