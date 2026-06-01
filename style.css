@@ -329,7 +329,7 @@ body {
 .article-inner .article-preview { position: relative; z-index: 1; }
 .article-inner .article-title   { color: #fff; }
 .article-inner .article-preview { color: rgba(255,255,255,0.72); }
-.article-item.swiped .article-inner { transform: translateX(-160px); }
+.article-item.swiped .article-inner { transform: translateX(-240px); }
 
 /* 左スワイプで現れるアクションボタン */
 .swipe-actions {
@@ -357,6 +357,7 @@ body {
   font-family: var(--font);
   letter-spacing: 0.03em;
 }
+.swipe-action-duplicate { background: #22c55e; }
 .swipe-action-move   { background: #6366f1; }
 .swipe-action-delete { background: #ef4444; }
 

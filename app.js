@@ -621,6 +621,13 @@ function renderCategory(container) {
           <div class="article-preview">${esc(preview)}</div>
         </div>
         <div class="swipe-actions">
+          <button class="swipe-action-btn swipe-action-duplicate">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            複写
+          </button>
           <button class="swipe-action-btn swipe-action-move">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             移動
@@ -634,6 +641,13 @@ function renderCategory(container) {
       // カード本体タップ→エディター
       li.querySelector('.article-inner').onclick = () => {
         goTo('editor', state.categoryId, art.id);
+      };
+
+      // 複写ボタン
+      li.querySelector('.swipe-action-duplicate').onclick = async e => {
+        e.stopPropagation();
+        li.classList.remove('swiped');
+        await duplicateArticle(art.id, state.categoryId);
       };
 
       // 移動ボタン
@@ -1218,6 +1232,13 @@ function renderEditor(container) {
       const items = clipboardData.items;
       let hasImage = false;
 
+      // 非同期の画像読み込み時にカーソル位置が失われないよう、同期コンテキストで Range を保存
+      const sel = window.getSelection();
+      let savedRange = null;
+      if (sel && sel.rangeCount > 0) {
+        savedRange = sel.getRangeAt(0).cloneRange();
+      }
+
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf('image') !== -1) {
           e.preventDefault(); // デフォルト処理を阻止
@@ -1271,25 +1292,32 @@ function renderEditor(container) {
                   img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
                   img.style.display = 'block';
 
-                  // 現在のカーソル位置に画像を挿入
-                  const sel = window.getSelection();
+                  // 画像を段落要素 <p> で囲って「段落扱い」にする
+                  const pImg = document.createElement('p');
+                  pImg.appendChild(img);
+
+                  // コピペ後のカーソル追従用改行
+                  const pNext = document.createElement('p');
+                  pNext.appendChild(document.createElement('br'));
+
                   let inserted = false;
-                  if (sel && sel.rangeCount) {
+                  // 保存された Range を使って、ペーストした瞬間のカーソル位置に挿入
+                  if (savedRange) {
                     try {
-                      const range = sel.getRangeAt(0);
-                      range.deleteFromDocument();
-                      range.insertNode(img);
+                      savedRange.deleteFromDocument();
+                      savedRange.insertNode(pImg);
                       
-                      // コピペ後のカーソル追従用改行
-                      const p = document.createElement('p');
-                      p.appendChild(document.createElement('br'));
-                      
-                      if (img.parentNode) {
-                        img.parentNode.insertBefore(p, img.nextSibling);
-                        range.setStartAfter(img);
-                        range.collapse(true);
-                        sel.removeAllRanges();
-                        sel.addRange(range);
+                      if (pImg.parentNode) {
+                        pImg.parentNode.insertBefore(pNext, pImg.nextSibling);
+                        
+                        // 新しい Range を作成してカーソルを画像直後の改行に合わせる
+                        const newRange = document.createRange();
+                        newRange.setStart(pNext, 0);
+                        newRange.collapse(true);
+                        
+                        const currentSel = window.getSelection();
+                        currentSel.removeAllRanges();
+                        currentSel.addRange(newRange);
                         inserted = true;
                       }
                     } catch (domErr) {
@@ -1299,12 +1327,18 @@ function renderEditor(container) {
                   
                   if (!inserted) {
                     const editor = document.getElementById('edContent');
-                    if (editor) editor.appendChild(img);
+                    if (editor) {
+                      editor.appendChild(pImg);
+                      editor.appendChild(pNext);
+                    }
                   }
                   
-                  // inputイベントを発火して自動保存
+                  // 正規化処理を呼んでHTML構造をクリーンアップし、Firebaseに保存
                   const editor = document.getElementById('edContent');
-                  if (editor) editor.dispatchEvent(new Event('input'));
+                  if (editor) {
+                    normalizeEditorHTML(editor);
+                    editor.dispatchEvent(new Event('input'));
+                  }
                 } catch (canvasErr) {
                   console.error("Canvas compression failed:", canvasErr);
                 }
@@ -1327,64 +1361,50 @@ function renderEditor(container) {
 
       if (hasImage) return; // 画像処理を行った場合はここで終了
 
-    e.preventDefault(); // デフォルトの貼り付けを阻止（テキスト処理へ移行）
+      e.preventDefault(); // デフォルトの貼り付けを阻止（テキスト処理へ移行）
 
-    // テキスト：プレーンテキストとしてデータを取得（スタイルを完全除去）
-    let text = e.clipboardData.getData('text/plain');
-    if (!text) {
-      const html = e.clipboardData.getData('text/html');
-      if (html) {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = html;
-        text = tmp.textContent || tmp.innerText || '';
-      }
-    }
-
-    if (text) {
-      // 1. 純粋なテーブル罫線記号（|, │ 等）が複数（3つ以上）含まれ、かつ改行が存在する場合のみテーブル整形を実行する
-      const borderMatches = text.match(/[\|│┃┼├┤┌┐└┘｜┆┇┊┋┬┴]/g);
-      const hasTableBorders = borderMatches && borderMatches.length >= 3 && text.includes('\n');
-      const cleanedText = hasTableBorders ? cleanAndFormatBorderLines(text) : text;
-
-      // 2. 改行・段落・インデント（空白）を完全に再現するためのHTMLフラグメント化
-      const lines = cleanedText.split('\n');
-      const fragment = document.createDocumentFragment();
-
-      lines.forEach((line) => {
-        // 行頭・行末の不要なタブ文字(\t)や過剰なスペースをクリーンアップ
-        const cleanedLine = line.replace(/^\t+/, '').replace(/\t+$/, '').trimEnd();
-
-        // 空行（改行のみ）は段落間の改行（空行）として再現
-        if (cleanedLine.trim() === '') {
-          const p = document.createElement('p');
-          p.appendChild(document.createElement('br'));
-          fragment.appendChild(p);
-        } else {
-          const p = document.createElement('p');
-          p.textContent = cleanedLine;
-          fragment.appendChild(p);
+      // テキスト：プレーンテキストとしてデータを取得（スタイルを完全除去）
+      let text = e.clipboardData.getData('text/plain');
+      if (!text) {
+        const html = e.clipboardData.getData('text/html');
+        if (html) {
+          const tmp = document.createElement('div');
+          tmp.innerHTML = html;
+          text = tmp.textContent || tmp.innerText || '';
         }
-      });
-
-      // 3. カーソル位置に安全に流し込む（100%スタイル混入をシャットアウト）
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount) {
-        sel.deleteFromDocument();
-        const range = sel.getRangeAt(0);
-        
-        // フラグメントを挿入
-        range.insertNode(fragment);
-        
-        // カーソルを挿入したコンテンツ of 末尾に移動
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        document.getElementById('edContent').appendChild(fragment);
       }
-      // 自動保存を動かすためにinputイベントを発火
-      document.getElementById('edContent').dispatchEvent(new Event('input'));
-    }
+
+      if (text) {
+        // 1. 純粋なテーブル罫線記号（|, │ 等）が複数（3つ以上）含まれ、かつ改行が存在する場合のみテーブル整形を実行する
+        const borderMatches = text.match(/[\|│┃┼├┤┌┐└┘｜┆┇┊┋┬┴]/g);
+        const hasTableBorders = borderMatches && borderMatches.length >= 3 && text.includes('\n');
+        const cleanedText = hasTableBorders ? cleanAndFormatBorderLines(text) : text;
+
+        // execCommand を使用してプレーンテキストをカーソル位置に綺麗に流し込む
+        // これにより、余計な HTML ネストや不要なインデントが一切入らなくなります
+        const inserted = document.execCommand('insertText', false, cleanedText);
+        
+        // 万が一 execCommand が失敗した場合のフォールバック
+        if (!inserted) {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            sel.deleteFromDocument();
+            const range = sel.getRangeAt(0);
+            const textNode = document.createTextNode(cleanedText);
+            range.insertNode(textNode);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+
+        // 正規化処理を実行してHTML構造を整える
+        const editor = document.getElementById('edContent');
+        if (editor) {
+          normalizeEditorHTML(editor);
+          editor.dispatchEvent(new Event('input'));
+        }
+      }
     } catch (pasteErr) {
       console.error("Paste event listener error:", pasteErr);
     }
@@ -1475,6 +1495,65 @@ async function deleteArticleSilently() {
   goTo('category', state.categoryId, null, true);
 }
 
+// 既存のメモを複製してコピー元のすぐ上に挿入する
+async function duplicateArticle(artId, categoryId) {
+  try {
+    // 1. 対象カードのデータを取得
+    const snap = await db.ref(`articles/${categoryId}/${artId}`).once('value');
+    const original = snap.val();
+    if (!original) return;
+
+    // 2. 現在の全カードリストを取得してソート（表示時と同じロジック）
+    const allSnap = await db.ref(`articles/${categoryId}`).once('value');
+    const allData = allSnap.val() || {};
+    const arts = Object.entries(allData)
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) return b.order - a.order;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+
+    // 3. コピー元カードのインデックスを特定
+    const targetIndex = arts.findIndex(a => a.id === artId);
+    if (targetIndex === -1) return;
+
+    // 4. 新しいカードをプッシュしてキーを生成
+    const newRef = db.ref(`articles/${categoryId}`).push();
+    const newKey = newRef.key;
+
+    // 5. 複製するデータを作成
+    const duplicateData = {
+      content: original.content || '',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    // 6. 新しい配列を作成し、コピー元の上に挿入
+    const newArts = [...arts];
+    newArts.splice(targetIndex, 0, { id: newKey, ...duplicateData });
+
+    // 7. 全カードの order を新しい順序に合わせて一括更新
+    const updates = {};
+    const total = newArts.length;
+    newArts.forEach((art, i) => {
+      updates[`articles/${categoryId}/${art.id}/order`] = total - i;
+    });
+
+    // 8. データベースに新しいカードを作成し、すべての order を一括更新
+    updates[`articles/${categoryId}/${newKey}`] = {
+      ...duplicateData,
+      order: total - targetIndex // 新しいカードの order
+    };
+    
+    // 複写されたカードにフラッシュ効果を入れるため、justEditedArticleId を新しいカードのIDにセットする！
+    justEditedArticleId = newKey;
+
+    await db.ref().update(updates);
+  } catch (err) {
+    console.error("Duplicate article failed:", err);
+  }
+}
+
 // エディタのプレーンなコンテンツが完全に空であるかを判定
 function isEditorEmpty(editor) {
   const cleanHTML = getCleanEditorHTML(editor).trim();
@@ -1508,8 +1587,79 @@ function esc(str) {
 let activeGlobalEditorClickCleanup = null;
 
 // エディタロード時にスワイプ選択を自動バインド
+// エディタ内のHTML構造を常にPタグ（画像も含む）に平坦化・正規化する
+function normalizeEditorHTML(editor) {
+  if (!editor) return;
+
+  let needNormalize = false;
+  // 直接の子要素をチェック
+  for (let child of editor.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim() !== '') {
+      needNormalize = true;
+      break;
+    }
+    if (child.nodeType === Node.ELEMENT_NODE && child.tagName !== 'P') {
+      needNormalize = true;
+      break;
+    }
+  }
+
+  if (!needNormalize) return;
+
+  const tempDiv = document.createElement('div');
+  let currentP = null;
+
+  // 子ノードを走査し、すべてPタグで囲う
+  Array.from(editor.childNodes).forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent;
+      if (text.replace(/\s+/g, '') === '') {
+        return;
+      }
+      if (!currentP) {
+        currentP = document.createElement('p');
+        tempDiv.appendChild(currentP);
+      }
+      currentP.appendChild(document.createTextNode(text));
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tagName = node.tagName;
+      if (tagName === 'P') {
+        currentP = node.cloneNode(true);
+        tempDiv.appendChild(currentP);
+      } else if (tagName === 'BR') {
+        currentP = document.createElement('p');
+        currentP.appendChild(document.createElement('br'));
+        tempDiv.appendChild(currentP);
+        currentP = null;
+      } else if (tagName === 'IMG') {
+        currentP = document.createElement('p');
+        currentP.appendChild(node.cloneNode(true));
+        tempDiv.appendChild(currentP);
+        currentP = null;
+      } else {
+        // P以外の要素の中身を取り出してPにする
+        const p = document.createElement('p');
+        while (node.firstChild) {
+          p.appendChild(node.firstChild);
+        }
+        if (node.className) p.className = node.className;
+        tempDiv.appendChild(p);
+        currentP = null;
+      }
+    }
+  });
+
+  const newHTML = tempDiv.innerHTML || '<p><br></p>';
+  if (editor.innerHTML !== newHTML) {
+    editor.innerHTML = newHTML;
+  }
+}
+
 function initializeNativeParagraphActions(editor) {
   if (!editor) return;
+
+  // 0. 読み込み直後にエディタの段落構造を正規化する
+  normalizeEditorHTML(editor);
 
   // 1. 各段落（<p>）にスワイプイベントをバインド
   bindParagraphSwipeEvents(editor);
@@ -1523,6 +1673,12 @@ function initializeNativeParagraphActions(editor) {
   // フォーカスイン時にも解除
   editor.addEventListener('focusin', () => {
     cleanupAllSwipedParagraphs(editor);
+  });
+
+  // フォーカスアウト（blur）時にも正規化を走らせて保存をトリガーする
+  editor.addEventListener('blur', () => {
+    normalizeEditorHTML(editor);
+    editor.dispatchEvent(new Event('input'));
   });
 
   // エディタ外のクリックで解除
@@ -1656,6 +1812,14 @@ function bindParagraphSwipeEvents(editor) {
         p = p.parentNode;
       }
       if (!p || p === editor) return;
+
+      // もし p が P タグでなかった場合、安全のために P タグでラップする（画像やむき出しテキストの安全対策）
+      if (p.tagName !== 'P') {
+        const wrapper = document.createElement('p');
+        p.parentNode.insertBefore(wrapper, p);
+        wrapper.appendChild(p);
+        p = wrapper;
+      }
 
       if (dx < 0) {
         toggleParagraphSelect(p, editor);
