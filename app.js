@@ -170,7 +170,7 @@ function goBack(skipSave = false) {
   listeners = [];
   if (saveTimer) clearTimeout(saveTimer);
 
-  state = { screen: prev.screen, categoryId: prev.categoryId, articleId: prev.articleId };
+  state = { screen: prev.screen, categoryId: prev.categoryId, articleId: prev.articleId, uid: state.uid };
 
   const app = document.getElementById('app');
   app.classList.remove('visible');
@@ -1170,7 +1170,7 @@ function createArticle(noTransition = false) {
     listeners = [];
     if (saveTimer) clearTimeout(saveTimer);
     navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
-    state = { screen: 'editor', categoryId: state.categoryId, articleId: newKey };
+    state = { screen: 'editor', categoryId: state.categoryId, articleId: newKey, uid: state.uid };
     
     const appEl = document.getElementById('app');
     appEl.classList.remove('visible');
