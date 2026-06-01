@@ -382,6 +382,12 @@ function renderHome(container) {
           </svg>
         </button>
       </header>
+      
+      <div id="migrationBanner" style="background: rgba(249,115,22,0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
+        <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
+        <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
+      </div>
+
       <div class="category-grid" id="catGrid">
         <div class="loading-spinner">読み込み中…</div>
       </div>
@@ -390,6 +396,17 @@ function renderHome(container) {
   document.getElementById('btnAddCat').onclick = () => showCategoryModal();
   const showQrBtn = document.getElementById('btnShowQR');
   if (showQrBtn) showQrBtn.onclick = () => showQRCodeModal();
+
+  const migrateBtn = document.getElementById('btnMigrate');
+  if (migrateBtn) {
+    migrateBtn.onclick = async () => {
+      if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
+        migrateBtn.disabled = true;
+        migrateBtn.textContent = "引っ越しを実行中…";
+        await migrateOldDataToUserAccount();
+      }
+    };
+  }
   
   const signoutBtn = document.getElementById('btnSignOut');
   if (signoutBtn) {
@@ -1600,6 +1617,65 @@ async function duplicateArticle(artId, categoryId) {
   }
 }
 
+// 古いルート直下のデータを、現在ログインしているユーザーの個室へ移行（引っ越し）する
+async function migrateOldDataToUserAccount() {
+  try {
+    if (!state.uid) {
+      alert("ログインしていません。");
+      return;
+    }
+
+    // 1. ルート直下のカテゴリデータを取得
+    const catSnap = await db.ref('categories').once('value');
+    const categories = catSnap.val();
+
+    // 2. ルート直下のメモデータを取得
+    const artSnap = await db.ref('articles').once('value');
+    const articles = artSnap.val();
+
+    if (!categories && !articles) {
+      alert("移行する過去のデータが見つかりませんでした。");
+      const banner = document.getElementById('migrationBanner');
+      if (banner) banner.remove();
+      return;
+    }
+
+    const updates = {};
+    
+    // 3. カテゴリデータをユーザー個室用にコピー
+    if (categories) {
+      Object.entries(categories).forEach(([catId, catData]) => {
+        updates[`users/${state.uid}/categories/${catId}`] = catData;
+      });
+    }
+
+    // 4. メモデータをユーザー個室用にコピー
+    if (articles) {
+      Object.entries(articles).forEach(([catId, artMap]) => {
+        if (artMap) {
+          Object.entries(artMap).forEach(([artId, artData]) => {
+            updates[`users/${state.uid}/articles/${catId}/${artId}`] = artData;
+          });
+        }
+      });
+    }
+
+    // 5. Firebaseに一括書き込み
+    await db.ref().update(updates);
+    
+    alert("🎉 過去のメモの引っ越しが完全に成功しました！\n自動的に画面がリロードされます。");
+    window.location.reload();
+  } catch (err) {
+    console.error("Migration failed:", err);
+    alert("データの引っ越し中にエラーが発生しました: " + err.message);
+    const migrateBtn = document.getElementById('btnMigrate');
+    if (migrateBtn) {
+      migrateBtn.disabled = false;
+      migrateBtn.textContent = "引っ越しを実行する";
+    }
+  }
+}
+
 // エディタのプレーンなコンテンツが完全に空であるかを判定
 function isEditorEmpty(editor) {
   const cleanHTML = getCleanEditorHTML(editor).trim();
@@ -2073,10 +2149,17 @@ function renderLogin(container) {
   document.getElementById('btnGoogleLogin').onclick = async () => {
     try {
       const provider = new firebase.auth.GoogleAuthProvider();
-      await firebase.auth().signInWithPopup(provider);
+      // スマホやPWAでのポップアップブロックを完全に回避するためリダイレクト方式を使用
+      await firebase.auth().signInWithRedirect(provider);
     } catch (err) {
       console.error("Google Sign-In Error:", err);
-      alert("Googleログインに失敗しました: " + err.message);
+      let friendlyMsg = err.message;
+      if (err.code === 'auth/operation-not-allowed') {
+        friendlyMsg = "\n\n💡 Firebaseコンソールで「Googleログイン」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「Google」を追加して有効（オン）に設定してください。";
+      } else if (err.code === 'auth/unauthorized-domain') {
+        friendlyMsg = "\n\n💡 このドメインがFirebaseに承認されていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ 設定 ➔「承認済みドメイン」に「kimijimasan-lgtm.github.io」を追加してください。";
+      }
+      alert("Googleログインに失敗しました: " + friendlyMsg);
     }
   };
 
@@ -2086,7 +2169,11 @@ function renderLogin(container) {
       await firebase.auth().signInAnonymously();
     } catch (err) {
       console.error("Guest Sign-In Error:", err);
-      alert("ゲストログインに失敗しました: " + err.message);
+      let friendlyMsg = err.message;
+      if (err.code === 'auth/operation-not-allowed') {
+        friendlyMsg = "\n\n💡 Firebaseコンソールで「匿名ログイン（Anonymous）」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「匿名」を追加して有効（オン）に設定してください。";
+      }
+      alert("ゲストログインに失敗しました: " + friendlyMsg);
     }
   };
 }
