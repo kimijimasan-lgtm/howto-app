@@ -2149,17 +2149,26 @@ function renderLogin(container) {
   document.getElementById('btnGoogleLogin').onclick = async () => {
     try {
       const provider = new firebase.auth.GoogleAuthProvider();
-      // スマホやPWAでのポップアップブロックを完全に回避するためリダイレクト方式を使用
-      await firebase.auth().signInWithRedirect(provider);
+      // サードパーティCookieのブラウザ規制による無限ループを回避するため、まずはポップアップ方式を優先します
+      await firebase.auth().signInWithPopup(provider);
     } catch (err) {
       console.error("Google Sign-In Error:", err);
-      let friendlyMsg = err.message;
-      if (err.code === 'auth/operation-not-allowed') {
-        friendlyMsg = "\n\n💡 Firebaseコンソールで「Googleログイン」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「Google」を追加して有効（オン）に設定してください。";
-      } else if (err.code === 'auth/unauthorized-domain') {
-        friendlyMsg = "\n\n💡 このドメインがFirebaseに承認されていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ 設定 ➔「承認済みドメイン」に「kimijimasan-lgtm.github.io」を追加してください。";
+      // ポップアップがブラウザにブロックされた場合は、自動的にリダイレクト方式へ切り替えます
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
+        try {
+          await firebase.auth().signInWithRedirect(provider);
+        } catch (redirErr) {
+          alert("ログイン画面の起動に失敗しました: " + redirErr.message);
+        }
+      } else {
+        let friendlyMsg = err.message;
+        if (err.code === 'auth/operation-not-allowed') {
+          friendlyMsg = "\n\n💡 Firebaseコンソールで「Googleログイン」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「Google」を追加して有効（オン）に設定してください。";
+        } else if (err.code === 'auth/unauthorized-domain') {
+          friendlyMsg = "\n\n💡 このドメインがFirebaseに承認されていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ 設定 ➔「承認済みドメイン」に「kimijimasan-lgtm.github.io」を追加してください。";
+        }
+        alert("Googleログインに失敗しました: " + friendlyMsg);
       }
-      alert("Googleログインに失敗しました: " + friendlyMsg);
     }
   };
 
