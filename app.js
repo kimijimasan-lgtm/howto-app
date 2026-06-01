@@ -1301,18 +1301,42 @@ function renderEditor(container) {
                   pNext.appendChild(document.createElement('br'));
 
                   let inserted = false;
-                  // 保存された Range を使って、ペーストした瞬間のカーソル位置に挿入
-                  if (savedRange) {
+                  const editor = document.getElementById('edContent');
+
+                  // 保存された Range を使って、ペーストした瞬間のカーソル位置に段落を分割して挿入
+                  if (savedRange && editor) {
                     try {
-                      savedRange.deleteFromDocument();
-                      savedRange.insertNode(pImg);
-                      
-                      if (pImg.parentNode) {
-                        pImg.parentNode.insertBefore(pNext, pImg.nextSibling);
+                      // カーソル位置の親のPタグ（またはエディタ直下の子要素）を特定
+                      let parentP = savedRange.commonAncestorContainer;
+                      if (parentP.nodeType === Node.TEXT_NODE) {
+                        parentP = parentP.parentNode;
+                      }
+                      // エディタ直下の子要素まで親を遡る
+                      while (parentP && parentP.parentNode !== editor) {
+                        parentP = parentP.parentNode;
+                      }
+
+                      if (parentP && parentP.tagName === 'P') {
+                        // 現在の Range を利用して、カーソルの前後のコンテンツを分割する
+                        const range = savedRange.cloneRange();
+                        range.setEndAfter(parentP.lastChild || parentP);
+                        const afterContent = range.extractContents(); // カーソルより後ろを切り出す
+                        
+                        // 切り出された後ろのコンテンツを入れる新しい段落を作成
+                        const pNextNew = document.createElement('p');
+                        if (afterContent.textContent.trim() === '' && !afterContent.querySelector('img')) {
+                          pNextNew.appendChild(document.createElement('br'));
+                        } else {
+                          pNextNew.appendChild(afterContent);
+                        }
+                        
+                        // DOMに順番に挿入
+                        parentP.parentNode.insertBefore(pImg, parentP.nextSibling);
+                        pImg.parentNode.insertBefore(pNextNew, pImg.nextSibling);
                         
                         // 新しい Range を作成してカーソルを画像直後の改行に合わせる
                         const newRange = document.createRange();
-                        newRange.setStart(pNext, 0);
+                        newRange.setStart(pNextNew, 0);
                         newRange.collapse(true);
                         
                         const currentSel = window.getSelection();
@@ -1321,16 +1345,13 @@ function renderEditor(container) {
                         inserted = true;
                       }
                     } catch (domErr) {
-                      console.warn("DOM Range insertion failed, fallback to appendChild:", domErr);
+                      console.warn("DOM Range insertion / split failed, fallback to appendChild:", domErr);
                     }
                   }
                   
-                  if (!inserted) {
-                    const editor = document.getElementById('edContent');
-                    if (editor) {
-                      editor.appendChild(pImg);
-                      editor.appendChild(pNext);
-                    }
+                  if (!inserted && editor) {
+                    editor.appendChild(pImg);
+                    editor.appendChild(pNext);
                   }
                   
                   // 正規化処理を呼んでHTML構造をクリーンアップし、Firebaseに保存
@@ -1532,18 +1553,15 @@ async function duplicateArticle(artId, categoryId) {
     const newArts = [...arts];
     newArts.splice(targetIndex, 0, { id: newKey, ...duplicateData });
 
-    // 7. 全カードの order を新しい順序に合わせて一括更新
+    // 7. 先に複製データを Firebase に新規保存 (update 時の重複パスエラーを防止)
+    await db.ref(`articles/${categoryId}/${newKey}`).set(duplicateData);
+
+    // 8. 全カードの order を新しい順序に合わせて一括更新
     const updates = {};
     const total = newArts.length;
     newArts.forEach((art, i) => {
       updates[`articles/${categoryId}/${art.id}/order`] = total - i;
     });
-
-    // 8. データベースに新しいカードを作成し、すべての order を一括更新
-    updates[`articles/${categoryId}/${newKey}`] = {
-      ...duplicateData,
-      order: total - targetIndex // 新しいカードの order
-    };
     
     // 複写されたカードにフラッシュ効果を入れるため、justEditedArticleId を新しいカードのIDにセットする！
     justEditedArticleId = newKey;
