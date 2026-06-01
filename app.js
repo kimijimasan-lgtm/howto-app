@@ -1355,7 +1355,6 @@ function renderEditor(container) {
                   }
                   
                   // 正規化処理を呼んでHTML構造をクリーンアップし、Firebaseに保存
-                  const editor = document.getElementById('edContent');
                   if (editor) {
                     normalizeEditorHTML(editor);
                     editor.dispatchEvent(new Event('input'));
