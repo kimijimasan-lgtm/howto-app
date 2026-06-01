@@ -79,7 +79,7 @@ const COLORS = [
 const DEFAULT_GRAD = COLORS[0].grad;
 
 // ── 状態管理 ─────────────────────────────────
-let state = { screen: 'home', categoryId: null, articleId: null };
+let state = { screen: 'home', categoryId: null, articleId: null, uid: null };
 let listeners   = [];   // Firebase off() 用
 let saveTimer   = null;
 let catSortable = null;
@@ -93,7 +93,7 @@ let lastDeletedContent = null;   // 削除直前のエディタHTML（Undo用）
 
 // ── エディター内容の即時強制保存 ─────────────────
 function forceSaveEditorContent() {
-  if (state.screen !== 'editor' || !state.articleId || !state.categoryId) return;
+  if (state.screen !== 'editor' || !state.articleId || !state.categoryId || !state.uid) return;
   const editor = document.getElementById('edContent');
   if (!editor) return;
   
@@ -102,7 +102,7 @@ function forceSaveEditorContent() {
   // 保存時は確実にスワイプなどの付帯タグを取り除いたクリーンなHTMLを保存する
   const cleanHTML = getCleanEditorHTML(editor);
   
-  db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+  db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
     updatedAt: Date.now()
   }).catch(err => console.error("Force save error:", err));
@@ -120,8 +120,8 @@ function goTo(screen, categoryId = null, articleId = null, skipSave = false) {
   }
 
   // 履歴管理
-  if (screen === 'home') {
-    navHistory = [];  // ホームへ戻ると履歴リセット
+  if (screen === 'home' || screen === 'login') {
+    navHistory = [];  // ホームやログインへ戻ると履歴リセット
   } else {
     navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
   }
@@ -131,16 +131,20 @@ function goTo(screen, categoryId = null, articleId = null, skipSave = false) {
   listeners = [];
   if (saveTimer) clearTimeout(saveTimer);
 
-  state = { screen, categoryId, articleId };
+  state = { screen, categoryId, articleId, uid: state.uid };
 
   const app = document.getElementById('app');
   app.classList.remove('visible');
 
   setTimeout(() => {
     app.innerHTML = '';
-    if (screen === 'home')     renderHome(app);
-    if (screen === 'category') renderCategory(app);
-    if (screen === 'editor')   renderEditor(app);
+    if (!state.uid) {
+      renderLogin(app);
+    } else {
+      if (screen === 'home')     renderHome(app);
+      if (screen === 'category') renderCategory(app);
+      if (screen === 'editor')   renderEditor(app);
+    }
     app.classList.add('visible');
   }, 180);
 }
@@ -365,6 +369,13 @@ function renderHome(container) {
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
         </button>
+        <button class="btn-icon danger btn-signout" id="btnSignOut" title="サインアウト">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+        </button>
       </header>
       <div class="category-grid" id="catGrid">
         <div class="loading-spinner">読み込み中…</div>
@@ -374,8 +385,21 @@ function renderHome(container) {
   document.getElementById('btnAddCat').onclick = () => showCategoryModal();
   const showQrBtn = document.getElementById('btnShowQR');
   if (showQrBtn) showQrBtn.onclick = () => showQRCodeModal();
+  
+  const signoutBtn = document.getElementById('btnSignOut');
+  if (signoutBtn) {
+    signoutBtn.onclick = async () => {
+      if (confirm("サインアウトしますか？")) {
+        try {
+          await firebase.auth().signOut();
+        } catch (err) {
+          console.error("SignOut error:", err);
+        }
+      }
+    };
+  }
 
-  const ref = db.ref('categories');
+  const ref = db.ref(`users/${state.uid}/categories`);
   const handler = ref.on('value', snap => {
     const grid = document.getElementById('catGrid');
     if (!grid) return;
@@ -436,7 +460,7 @@ function renderHome(container) {
           grid.style.overflow = '';
           const cards = grid.querySelectorAll('.category-card');
           const updates = {};
-          cards.forEach((c, i) => { updates[`categories/${c.dataset.id}/order`] = i; });
+          cards.forEach((c, i) => { updates[`users/${state.uid}/categories/${c.dataset.id}/order`] = i; });
           await db.ref().update(updates);
         }
       });
@@ -494,9 +518,9 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
     const name = input.value.trim();
     if (!name) { input.focus(); return; }
     if (catId) {
-      await db.ref(`categories/${catId}`).update({ name, color: selectedGrad });
+      await db.ref(`users/${state.uid}/categories/${catId}`).update({ name, color: selectedGrad });
     } else {
-      await db.ref('categories').push({
+      await db.ref(`users/${state.uid}/categories`).push({
         name, color: selectedGrad, order: Date.now(), createdAt: Date.now()
       });
     }
@@ -506,8 +530,8 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
   if (catId) {
     document.getElementById('mDel').onclick = async () => {
       if (!confirm(`「${currentName}」を削除します。\n中のメモもすべて消えます。よろしいですか？`)) return;
-      await db.ref(`categories/${catId}`).remove();
-      await db.ref(`articles/${catId}`).remove();
+      await db.ref(`users/${state.uid}/categories/${catId}`).remove();
+      await db.ref(`users/${state.uid}/articles/${catId}`).remove();
       close();
     };
   }
@@ -557,7 +581,7 @@ function renderCategory(container) {
 
   // カテゴリ名・色
   let catColor = DEFAULT_GRAD;
-  const cRef = db.ref(`categories/${state.categoryId}`);
+  const cRef = db.ref(`users/${state.uid}/categories/${state.categoryId}`);
   const cHandler = cRef.on('value', snap => {
     const val = snap.val();
     if (!val) return;
@@ -571,7 +595,7 @@ function renderCategory(container) {
   listeners.push(() => cRef.off('value', cHandler));
 
   // 記事一覧
-  const aRef = db.ref(`articles/${state.categoryId}`);
+  const aRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`);
   const aHandler = aRef.on('value', snap => {
     const list = document.getElementById('artList');
     if (!list) return;
@@ -711,7 +735,7 @@ function renderCategory(container) {
           const total = items.length;
           items.forEach((item, i) => {
             // 降順ソートに合わせて、上にあるものほど order を大きくする（total - i）
-            updates[`articles/${state.categoryId}/${item.dataset.id}/order`] = total - i;
+            updates[`users/${state.uid}/articles/${state.categoryId}/${item.dataset.id}/order`] = total - i;
           });
           await db.ref().update(updates);
         }
@@ -726,7 +750,7 @@ function renderCategory(container) {
 
 // カードを別カテゴリへ移動するモーダル
 async function showMoveModal(artId, currentCatId) {
-  const snap = await db.ref('categories').once('value');
+  const snap = await db.ref(`users/${state.uid}/categories`).once('value');
   const cats = snap.val();
   if (!cats) return;
   const others = Object.entries(cats)
@@ -758,11 +782,11 @@ async function showMoveModal(artId, currentCatId) {
   overlay.querySelectorAll('.move-cat-item').forEach(item => {
     item.onclick = async () => {
       const destCatId = item.dataset.catId;
-      const artSnap = await db.ref(`articles/${currentCatId}/${artId}`).once('value');
+      const artSnap = await db.ref(`users/${state.uid}/articles/${currentCatId}/${artId}`).once('value');
       const artData = artSnap.val();
       if (!artData) { overlay.remove(); return; }
-      await db.ref(`articles/${destCatId}/${artId}`).set(artData);
-      await db.ref(`articles/${currentCatId}/${artId}`).remove();
+      await db.ref(`users/${state.uid}/articles/${destCatId}/${artId}`).set(artData);
+      await db.ref(`users/${state.uid}/articles/${currentCatId}/${artId}`).remove();
       overlay.remove();
     };
   });
@@ -770,13 +794,13 @@ async function showMoveModal(artId, currentCatId) {
 
 // カードを削除
 async function deleteArticleById(artId, catId) {
-  await db.ref(`articles/${catId}/${artId}`).remove();
+  await db.ref(`users/${state.uid}/articles/${catId}/${artId}`).remove();
 }
 
 // ── 一括エクスポート選択モーダルの表示 ────────────────
 function showExportAllModal(catId) {
   // そのカテゴリ内の全メモを順序順（画面の表示順と同じ降順ソート）で取得する
-  db.ref(`articles/${catId}`).once('value', snap => {
+  db.ref(`users/${state.uid}/articles/${catId}`).once('value', snap => {
     const data = snap.val();
     if (!data) {
       alert('エクスポートするメモがありません。');
@@ -1110,7 +1134,7 @@ function handleExportAllAction(type, articles) {
 
 function createArticle(noTransition = false) {
   // 通信を待たずにクライアント側で即座に一意なID（キー）を生成（遅延ゼロ）
-  const newRef = db.ref(`articles/${state.categoryId}`).push();
+  const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
   const newKey = newRef.key;
 
   // バックグラウンドで初期データを保存（画面遷移を待たせない）
@@ -1431,7 +1455,7 @@ function renderEditor(container) {
   });
 
   // 初期コンテンツ読み込み
-  db.ref(`articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
+  db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
     const editor = document.getElementById('edContent');
     const status = document.getElementById('saveStatus');
     if (!editor) return;
@@ -1458,7 +1482,7 @@ function renderEditor(container) {
       editor.innerHTML = displayHTML;
 
       // 変換内容をFirebaseに保存（次回からHTMLとして正常ロード）
-      db.ref(`articles/${state.categoryId}/${state.articleId}`)
+      db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`)
         .update({ content: displayHTML, updatedAt: Date.now() })
         .catch(() => {});
 
@@ -1471,7 +1495,7 @@ function renderEditor(container) {
       displayHTML = after;
 
       if (after !== before) {
-        db.ref(`articles/${state.categoryId}/${state.articleId}`)
+        db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`)
           .update({ content: after, updatedAt: Date.now() })
           .catch(() => {});
       }
@@ -1488,7 +1512,7 @@ function renderEditor(container) {
       saveTimer = setTimeout(async () => {
         try {
           const cleanHTML = getCleanEditorHTML(editor);
-          await db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+          await db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).update({
             content: cleanHTML, updatedAt: Date.now()
           });
           const s = document.getElementById('saveStatus');
@@ -1504,14 +1528,14 @@ function renderEditor(container) {
 
 async function deleteArticle() {
   if (!confirm("このメモを完全に削除します。よろしいですか？")) return;
-  await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
+  await db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).remove();
   goTo('category', state.categoryId, null, true);
 }
 
 // 直接Firebaseから無音でカードを完全削除する（最後の段落削除時）
 async function deleteArticleSilently() {
-  if (!state.articleId || !state.categoryId) return;
-  await db.ref(`articles/${state.categoryId}/${state.articleId}`).remove();
+  if (!state.articleId || !state.categoryId || !state.uid) return;
+  await db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).remove();
   goTo('category', state.categoryId, null, true);
 }
 
@@ -1519,12 +1543,12 @@ async function deleteArticleSilently() {
 async function duplicateArticle(artId, categoryId) {
   try {
     // 1. 対象カードのデータを取得
-    const snap = await db.ref(`articles/${categoryId}/${artId}`).once('value');
+    const snap = await db.ref(`users/${state.uid}/articles/${categoryId}/${artId}`).once('value');
     const original = snap.val();
     if (!original) return;
 
     // 2. 現在の全カードリストを取得してソート（表示時と同じロジック）
-    const allSnap = await db.ref(`articles/${categoryId}`).once('value');
+    const allSnap = await db.ref(`users/${state.uid}/articles/${categoryId}`).once('value');
     const allData = allSnap.val() || {};
     const arts = Object.entries(allData)
       .map(([id, v]) => ({ id, ...v }))
@@ -1538,7 +1562,7 @@ async function duplicateArticle(artId, categoryId) {
     if (targetIndex === -1) return;
 
     // 4. 新しいカードをプッシュしてキーを生成
-    const newRef = db.ref(`articles/${categoryId}`).push();
+    const newRef = db.ref(`users/${state.uid}/articles/${categoryId}`).push();
     const newKey = newRef.key;
 
     // 5. 複製するデータを作成
@@ -1553,16 +1577,16 @@ async function duplicateArticle(artId, categoryId) {
     newArts.splice(targetIndex, 0, { id: newKey, ...duplicateData });
 
     // 7. 先に複製データを Firebase に新規保存 (update 時の重複パスエラーを防止)
-    await db.ref(`articles/${categoryId}/${newKey}`).set(duplicateData);
+    await db.ref(`users/${state.uid}/articles/${categoryId}/${newKey}`).set(duplicateData);
 
     // 8. 全カードの order を新しい順序に合わせて一括更新
     const updates = {};
     const total = newArts.length;
     newArts.forEach((art, i) => {
-      updates[`articles/${categoryId}/${art.id}/order`] = total - i;
+      updates[`users/${state.uid}/articles/${categoryId}/${art.id}/order`] = total - i;
     });
     
-    // 複写されたカードにフラッシュ効果を入れるため、justEditedArticleId を新しいカードのIDにセットする！
+    // 複写されたカードにフラッシュ効果を入れるため、justEditedArticleId を新しいカード of IDにセットする！
     justEditedArticleId = newKey;
 
     await db.ref().update(updates);
@@ -1798,9 +1822,9 @@ function getCleanEditorHTML(editor) {
 
 // 直接FirebaseにクリーンHTMLを同期保存
 function saveEditorContentDirectly(editor) {
-  if (!editor || !state.articleId || !state.categoryId) return;
+  if (!editor || !state.articleId || !state.categoryId || !state.uid) return;
   const cleanHTML = getCleanEditorHTML(editor);
-  db.ref(`articles/${state.categoryId}/${state.articleId}`).update({
+  db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).update({
     content: cleanHTML,
     updatedAt: Date.now()
   }).catch(err => console.error("Native select delete save error:", err));
@@ -2005,5 +2029,78 @@ function showQRCodeModal() {
   overlay.onclick = e => { if (e.target === overlay || e.target.id === 'qrModalOverlay') close(); };
 }
 
-// ── 起動 ────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => goTo('home'));
+// ── SCREEN: ログイン画面（ガラスモーフィズム） ──────────
+function renderLogin(container) {
+  container.innerHTML = `
+    <div class="screen-login">
+      <div class="login-glass-bg"></div>
+      <div class="login-card">
+        <div class="login-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+        </div>
+        <h1 class="login-title">PCスマホ連動メモ</h1>
+        <p class="login-desc">
+          カテゴリ別にメモを美しく管理。<br>
+          ログインすれば、PCとスマホで瞬時に完全同期されます。
+        </p>
+        
+        <button class="login-btn btn-google" id="btnGoogleLogin">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="display: block;">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+          </svg>
+          Google でログイン
+        </button>
+        
+        <button class="login-btn btn-guest" id="btnGuestLogin">
+          ゲストとして一時的に開始
+        </button>
+      </div>
+    </div>
+  `;
+
+  // Googleログインイベント
+  document.getElementById('btnGoogleLogin').onclick = async () => {
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await firebase.auth().signInWithPopup(provider);
+    } catch (err) {
+      console.error("Google Sign-In Error:", err);
+      alert("Googleログインに失敗しました: " + err.message);
+    }
+  };
+
+  // ゲストログインイベント
+  document.getElementById('btnGuestLogin').onclick = async () => {
+    try {
+      await firebase.auth().signInAnonymously();
+    } catch (err) {
+      console.error("Guest Sign-In Error:", err);
+      alert("ゲストログインに失敗しました: " + err.message);
+    }
+  };
+}
+
+// ── 起動と認証の監視 ────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const app = document.getElementById('app');
+  app.innerHTML = '<div class="screen-login"><div class="loading-spinner">認証状態を確認中…</div></div>';
+  app.classList.add('visible');
+
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) {
+      // ログイン済み
+      state.uid = user.uid;
+      goTo('home');
+    } else {
+      // 未ログイン
+      state.uid = null;
+      goTo('login');
+    }
+  });
+});
