@@ -158,6 +158,11 @@ function goTo(screen, categoryId = null, articleId = null, skipSave = false) {
 function goBack(skipSave = false) {
   if (navHistory.length === 0) return;
 
+  // カテゴリ一覧からホームへ戻る際、カテゴリIDを記憶する
+  if (state.screen === 'category') {
+    window.justVisitedCategoryId = state.categoryId;
+  }
+
   // エディターから戻る場合は即座に強制保存
   if (state.screen === 'editor' && !skipSave) {
     justEditedArticleId = state.articleId;
@@ -489,6 +494,15 @@ function renderHome(container) {
         <button class="cat-edit-btn" title="編集">✏️</button>
         <span class="cat-name">${esc(cat.name)}</span>`;
 
+      // もし直前に訪れていたカテゴリIDであれば、戻りフラッシュ効果クラスを付与
+      if (cat.id === window.justVisitedCategoryId) {
+        card.classList.add('just-visited-flash');
+        setTimeout(() => {
+          card.classList.remove('just-visited-flash');
+          window.justVisitedCategoryId = null; // フラッシュ完了後にクリア
+        }, 1600);
+      }
+
       // 全角・半角の文字数をスマートに換算し、CSS変数としてセット（CSS側でレスポンシブ自動調整）
       const vLen = getVirtualLength(cat.name);
       card.style.setProperty('--char-len', vLen);
@@ -513,9 +527,21 @@ function renderHome(container) {
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         fallbackClass: 'sortable-fallback-simple', // 拡大・ズレのない極めてシンプルな指追従スタイル
-        onStart: () => { grid.style.overflow = 'visible'; },
+        onStart: (evt) => {
+          grid.style.overflow = 'visible';
+          if (evt.item) {
+            evt.item.classList.add('category-drag-start-flash');
+          }
+        },
         onEnd: async evt => {
           grid.style.overflow = '';
+          if (evt.item) {
+            evt.item.classList.remove('category-drag-start-flash');
+            evt.item.classList.add('category-drag-end-flash');
+            setTimeout(() => {
+              evt.item.classList.remove('category-drag-end-flash');
+            }, 600);
+          }
           const cards = grid.querySelectorAll('.category-card');
           const updates = {};
           cards.forEach((c, i) => { updates[`users/${state.uid}/categories/${c.dataset.id}/order`] = i; });
@@ -659,14 +685,18 @@ function renderCategory(container) {
     if (!list) return;
     const data = snap.val();
 
-    if (!data) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">📝</div>
-          <p>メモがまだありません</p>
-          <button class="btn-primary" id="btnFirstArt">最初のメモを作成</button>
-        </div>`;
-      document.getElementById('btnFirstArt').onclick = () => createArticle();
+    if (!data || Object.keys(data).length === 0) {
+      // メモが1枚もない場合、自動的に空の新規文書をバックグラウンドで作成
+      const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
+      newRef.set({
+        content: '<p><br></p>', // 空の段落を初期設定
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        order: Date.now()
+      }).catch(err => console.error(err));
+      
+      // 生成されるまで一時的にローディング表示にする（空警告バナーは出さない）
+      list.innerHTML = '<div class="loading-spinner">自動作成中…</div>';
       return;
     }
 
@@ -718,6 +748,13 @@ function renderCategory(container) {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             削除
           </button>
+          <button class="swipe-action-btn swipe-action-cancel" style="background: #4b5563;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            戻る
+          </button>
         </div>`;
 
       // カード本体タップ→エディター
@@ -735,13 +772,21 @@ function renderCategory(container) {
       // 移動ボタン
       li.querySelector('.swipe-action-move').onclick = e => {
         e.stopPropagation();
+        li.classList.remove('swiped');
         showMoveModal(art.id, state.categoryId);
       };
 
       // 削除ボタン
       li.querySelector('.swipe-action-delete').onclick = e => {
         e.stopPropagation();
+        li.classList.remove('swiped');
         deleteArticleById(art.id, state.categoryId);
+      };
+
+      // キャンセル（戻る）ボタン
+      li.querySelector('.swipe-action-cancel').onclick = e => {
+        e.stopPropagation();
+        li.classList.remove('swiped');
       };
 
       // 左スワイプ検出
@@ -1299,12 +1344,21 @@ function renderEditor(container) {
         return clone.outerHTML;
       });
 
-      // コピーはエディタから削除しないので、単に選択解除して保存する
-      cleanupAllSwipedParagraphs(editor);
-      saveEditorContentDirectly(editor);
-      updatePasteButtonState();
+      // コピー元の段落にフラッシュ効果を与える
+      selectedParas.forEach(p => {
+        p.classList.add('para-copy-animating');
+      });
 
-      showToast("段落をコピーしました");
+      // 0.5秒後に選択を解除し、保存してトーストを表示
+      setTimeout(() => {
+        selectedParas.forEach(p => {
+          p.classList.remove('para-copy-animating');
+        });
+        cleanupAllSwipedParagraphs(editor);
+        saveEditorContentDirectly(editor);
+        updatePasteButtonState();
+        showToast("段落をコピーしました");
+      }, 500);
     };
   }
 
@@ -1330,20 +1384,27 @@ function renderEditor(container) {
       // 削除前のHTMLを退避 (Undo用)
       lastDeletedContent = getCleanEditorHTML(editor);
 
-      // 2. 選択された段落を削除
-      selectedParas.forEach(p => p.remove());
+      // カットアニメーションの適用
+      selectedParas.forEach(p => {
+        p.classList.add('para-cut-animating');
+      });
 
-      // 完全に空なら自動カード削除
-      if (isEditorEmpty(editor)) {
-        deleteArticleSilently();
-        return;
-      }
+      // 0.5秒後に実際の削除、保存、トースト表示を行う
+      setTimeout(() => {
+        selectedParas.forEach(p => p.remove());
 
-      saveEditorContentDirectly(editor);
-      updateBulkDeleteButtonState(editor);
-      updatePasteButtonState();
+        // 完全に空なら自動カード削除
+        if (isEditorEmpty(editor)) {
+          deleteArticleSilently();
+          return;
+        }
 
-      showToast("段落をカットしました");
+        saveEditorContentDirectly(editor);
+        updateBulkDeleteButtonState(editor);
+        updatePasteButtonState();
+
+        showToast("段落をカットしました");
+      }, 500);
     };
   }
   addSwipeBack(container, () => goBack());
@@ -1571,6 +1632,12 @@ function renderEditor(container) {
 
     // 自動保存（1秒デバウンス）
     editor.oninput = () => {
+      // ユーザーが直接文字編集を行った場合、ペーストバッファをクリア（キャンセル）する
+      if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
+        window.globalCutParagraphs = null;
+        updatePasteButtonState();
+      }
+
       if (status) { status.textContent = '編集中…'; status.className = 'save-status editing'; }
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
@@ -1788,6 +1855,57 @@ function normalizeEditorHTML(editor) {
     }
   });
 
+  // Pタグの内部の BR タグを境界として、Pタグを別々のPタグ（段落）に自動分割する！
+  // これにより画面上の改行がすべて個別の段落として扱われるようになります。
+  let hasSplit = false;
+  const pTags = Array.from(editor.querySelectorAll('p'));
+  pTags.forEach(p => {
+    const brs = p.querySelectorAll('br');
+    // 単なる空段落 <p><br></p> は分割対象外
+    if (brs.length === 0 || (brs.length === 1 && p.textContent.trim() === '' && !p.querySelector('img'))) {
+      return;
+    }
+
+    const parent = p.parentNode;
+    const childNodes = Array.from(p.childNodes);
+    let currentNewP = document.createElement('p');
+    if (p.className) currentNewP.className = p.className;
+
+    childNodes.forEach(node => {
+      if (node.tagName === 'BR') {
+        // 現在構築中のPタグにコンテンツがあれば挿入
+        if (currentNewP.childNodes.length > 0) {
+          parent.insertBefore(currentNewP, p);
+          currentNewP = document.createElement('p');
+          if (p.className) currentNewP.className = p.className;
+        } else {
+          // 直前がBRなどで空なら、空行段落 <p><br></p> を挿入
+          const emptyP = document.createElement('p');
+          emptyP.appendChild(document.createElement('br'));
+          parent.insertBefore(emptyP, p);
+        }
+      } else {
+        // チェックスパンは再構築されるため除外
+        if (node.classList && node.classList.contains('para-checkbox')) {
+          return;
+        }
+        currentNewP.appendChild(node.cloneNode(true));
+      }
+    });
+
+    // 最後に残ったPタグを挿入
+    if (currentNewP.childNodes.length > 0) {
+      parent.insertBefore(currentNewP, p);
+    } else {
+      const emptyP = document.createElement('p');
+      emptyP.appendChild(document.createElement('br'));
+      parent.insertBefore(emptyP, p);
+    }
+
+    p.remove();
+    hasSplit = true;
+  });
+
   let needNormalize = false;
   // 直接の子要素をチェック
   for (let child of editor.childNodes) {
@@ -1801,60 +1919,60 @@ function normalizeEditorHTML(editor) {
     }
   }
 
-  if (!needNormalize) return;
+  if (needNormalize || hasSplit) {
+    const tempDiv = document.createElement('div');
+    let currentP = null;
 
-  const tempDiv = document.createElement('div');
-  let currentP = null;
-
-  // 子ノードを走査し、すべてPタグまたは特別に許可したDIVコンテナにする
-  Array.from(editor.childNodes).forEach(node => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      if (text.replace(/\s+/g, '') === '') {
-        return;
-      }
-      if (!currentP) {
-        currentP = document.createElement('p');
-        tempDiv.appendChild(currentP);
-      }
-      currentP.appendChild(document.createTextNode(text));
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const tagName = node.tagName;
-      if (tagName === 'P') {
-        currentP = node.cloneNode(true);
-        tempDiv.appendChild(currentP);
-      } else if (tagName === 'BR') {
-        currentP = document.createElement('p');
-        currentP.appendChild(document.createElement('br'));
-        tempDiv.appendChild(currentP);
-        currentP = null;
-      } else if (tagName === 'IMG') {
-        currentP = document.createElement('p');
-        const clonedImg = node.cloneNode(true);
-        clonedImg.setAttribute('contenteditable', 'false');
-        currentP.appendChild(clonedImg);
-        tempDiv.appendChild(currentP);
-        currentP = null;
-      } else if (node.classList.contains('youtube-container')) {
-        // 特別なコンテナはそのまま複製して維持（末尾飛ばしバグを解消）
-        tempDiv.appendChild(node.cloneNode(true));
-        currentP = null;
-      } else {
-        // P以外の要素の中身を取り出してPにする
-        const p = document.createElement('p');
-        while (node.firstChild) {
-          p.appendChild(node.firstChild);
+    // 子ノードを走査し、すべてPタグまたは特別に許可したDIVコンテナにする
+    Array.from(editor.childNodes).forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent;
+        if (text.replace(/\s+/g, '') === '') {
+          return;
         }
-        if (node.className) p.className = node.className;
-        tempDiv.appendChild(p);
-        currentP = null;
+        if (!currentP) {
+          currentP = document.createElement('p');
+          tempDiv.appendChild(currentP);
+        }
+        currentP.appendChild(document.createTextNode(text));
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const tagName = node.tagName;
+        if (tagName === 'P') {
+          currentP = node.cloneNode(true);
+          tempDiv.appendChild(currentP);
+        } else if (tagName === 'BR') {
+          currentP = document.createElement('p');
+          currentP.appendChild(document.createElement('br'));
+          tempDiv.appendChild(currentP);
+          currentP = null;
+        } else if (tagName === 'IMG') {
+          currentP = document.createElement('p');
+          const clonedImg = node.cloneNode(true);
+          clonedImg.setAttribute('contenteditable', 'false');
+          currentP.appendChild(clonedImg);
+          tempDiv.appendChild(currentP);
+          currentP = null;
+        } else if (node.classList.contains('youtube-container')) {
+          // 特別なコンテナはそのまま複製して維持（末尾飛ばしバグを解消）
+          tempDiv.appendChild(node.cloneNode(true));
+          currentP = null;
+        } else {
+          // P以外の要素の中身を取り出してPにする
+          const p = document.createElement('p');
+          while (node.firstChild) {
+            p.appendChild(node.firstChild);
+          }
+          if (node.className) p.className = node.className;
+          tempDiv.appendChild(p);
+          currentP = null;
+        }
       }
-    }
-  });
+    });
 
-  const newHTML = tempDiv.innerHTML || '<p><br></p>';
-  if (editor.innerHTML !== newHTML) {
-    editor.innerHTML = newHTML;
+    const newHTML = tempDiv.innerHTML || '<p><br></p>';
+    if (editor.innerHTML !== newHTML) {
+      editor.innerHTML = newHTML;
+    }
   }
 }
 
@@ -2501,6 +2619,7 @@ function pasteCutParagraphs(editor) {
   
   const sel = window.getSelection();
   let inserted = false;
+  const insertedElements = [];
   
   if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
     const range = sel.getRangeAt(0);
@@ -2520,6 +2639,8 @@ function pasteCutParagraphs(editor) {
         temp.innerHTML = html;
         const newEl = temp.firstElementChild;
         if (!newEl) return;
+        
+        insertedElements.push(newEl);
         
         // 親段落のテキストが完全に空（または <br> のみ）の場合、そこに直接置換する
         if (refNode === parentP && parentP.textContent.trim() === '' && !parentP.querySelector('img')) {
@@ -2541,13 +2662,29 @@ function pasteCutParagraphs(editor) {
       const temp = document.createElement('div');
       temp.innerHTML = html;
       const newEl = temp.firstElementChild;
-      if (newEl) editor.appendChild(newEl);
+      if (newEl) {
+        editor.appendChild(newEl);
+        insertedElements.push(newEl);
+      }
     });
   }
+  
+  // 挿入された段落にフラッシュ効果を与える
+  insertedElements.forEach(el => {
+    el.classList.add('para-paste-animating');
+  });
   
   // 挿入後にエディタを正規化して保存
   normalizeEditorHTML(editor);
   editor.dispatchEvent(new Event('input'));
+  
+  // 1秒後にフラッシュクラスを除去
+  setTimeout(() => {
+    insertedElements.forEach(el => {
+      el.classList.remove('para-paste-animating');
+      if (el.getAttribute('class') === '') el.removeAttribute('class');
+    });
+  }, 1000);
   
   // ペースト完了後にメモリをクリア
   window.globalCutParagraphs = null;
