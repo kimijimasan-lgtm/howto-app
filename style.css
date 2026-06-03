@@ -519,7 +519,8 @@ body {
   margin-right: 0.75rem;
   user-select: none;
   -webkit-user-select: none;
-  box-shadow: 0 2px 6px rgba(249, 115, 22, 0.4), inset 0 -1px 3px rgba(0, 0, 0, 0.2); /* 立体感 */
+  border: 1px solid rgba(0, 0, 0, 0.08); /* 境界線をうっすら表示 */
+  box-shadow: 0 3px 8px rgba(239, 68, 68, 0.55), inset 0 -1px 3px rgba(0, 0, 0, 0.15); /* 赤影を強調 */
   vertical-align: middle;
   transition: transform 0.15s ease;
   transform: scale(1);

@@ -383,10 +383,7 @@ function renderHome(container) {
         </button>
       </header>
       
-      <div id="migrationBanner" style="background: rgba(249,115,22,0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
-        <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
-        <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
-      </div>
+      <div id="migrationBannerContainer"></div>
 
       <div class="category-grid" id="catGrid">
         <div class="loading-spinner">読み込み中…</div>
@@ -397,15 +394,54 @@ function renderHome(container) {
   const showQrBtn = document.getElementById('btnShowQR');
   if (showQrBtn) showQrBtn.onclick = () => showQRCodeModal();
 
-  const migrateBtn = document.getElementById('btnMigrate');
-  if (migrateBtn) {
-    migrateBtn.onclick = async () => {
-      if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
-        migrateBtn.disabled = true;
-        migrateBtn.textContent = "引っ越しを実行中…";
-        await migrateOldDataToUserAccount();
-      }
-    };
+  const user = firebase.auth().currentUser;
+  const isGuest = user && user.isAnonymous;
+  const bannerContainer = document.getElementById('migrationBannerContainer');
+
+  if (isGuest) {
+    if (bannerContainer) {
+      bannerContainer.innerHTML = `
+        <div id="migrationBanner" style="position: relative; background: rgba(239, 68, 68, 0.1); border: 1.5px dashed var(--danger); border-radius: 14px; padding: 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
+          <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">⚠️ 現在ゲストとして一時的に開始しています。この状態ではブラウザのキャッシュをクリアするとメモが消えてしまい、PCとスマホの連動もできません。安全に保存・同期するには、一度サインアウトして Google アカウントでログインしてください。</span>
+        </div>
+      `;
+    }
+  } else if (user) {
+    const hideLocal = localStorage.getItem('hide_migration_banner') === 'true';
+    if (!hideLocal && bannerContainer) {
+      db.ref(`users/${state.uid}/migrated`).once('value').then(snap => {
+        const migrated = snap.val();
+        if (!migrated && bannerContainer) {
+          bannerContainer.innerHTML = `
+            <div id="migrationBanner" style="position: relative; background: rgba(249, 115, 22, 0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 2.2rem 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
+              <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
+              <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
+              <button id="btnCloseMigrationBanner" style="position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-sub); font-size: 1.25rem; cursor: pointer; padding: 4px; line-height: 1;" title="閉じる">&times;</button>
+            </div>
+          `;
+
+          const migrateBtn = document.getElementById('btnMigrate');
+          if (migrateBtn) {
+            migrateBtn.onclick = async () => {
+              if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
+                migrateBtn.disabled = true;
+                migrateBtn.textContent = "引っ越しを実行中…";
+                await migrateOldDataToUserAccount();
+              }
+            };
+          }
+
+          const closeBtn = document.getElementById('btnCloseMigrationBanner');
+          if (closeBtn) {
+            closeBtn.onclick = () => {
+              localStorage.setItem('hide_migration_banner', 'true');
+              const banner = document.getElementById('migrationBanner');
+              if (banner) banner.remove();
+            };
+          }
+        }
+      }).catch(err => console.error("Error reading migration state:", err));
+    }
   }
   
   const signoutBtn = document.getElementById('btnSignOut');
@@ -1141,7 +1177,13 @@ function renderEditor(container) {
         </button>
         <span class="save-status editing" id="saveStatus">読み込み中…</span>
         <div class="editor-header-actions">
-          <button class="btn-icon accent" id="btnBulkDelete" title="選択した段落をカット" style="display: none; background: rgba(249, 115, 22, 0.2); border: 1px solid var(--accent); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--accent); transition: transform 0.2s; align-items: center; justify-content: center;">
+          <button class="btn-icon" id="btnBulkCopy" title="選択した段落をコピー" style="display: none; background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: #3b82f6; transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+          <button class="btn-icon danger" id="btnBulkDelete" title="選択した段落をカット" style="display: none; background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--danger); transition: transform 0.2s; align-items: center; justify-content: center;">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
               <circle cx="6" cy="6" r="3"></circle>
               <circle cx="6" cy="18" r="3"></circle>
@@ -1156,14 +1198,9 @@ function renderEditor(container) {
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
             </svg>
           </button>
-          <button class="btn-icon" id="btnAttach" title="ファイルを添付 (写真・PDF等)" style="margin-right: 0.35rem;">
+          <button class="btn-icon" id="btnAttach" title="画像を添付" style="margin-right: 0.35rem;">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-          <button class="btn-icon" id="btnEdHome" title="ホームへ" style="margin-right: 0.35rem;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
             </svg>
           </button>
           <button class="btn-icon danger" id="btnDel" title="カード全体を削除">
@@ -1183,7 +1220,6 @@ function renderEditor(container) {
     </div>`;
 
   document.getElementById('btnBack').onclick   = () => goBack();
-  document.getElementById('btnEdHome').onclick = () => goTo('home');
   document.getElementById('btnDel').onclick    = deleteArticle;
 
   const fileInput = document.getElementById('fileInput');
@@ -1242,6 +1278,34 @@ function renderEditor(container) {
       }
     };
     updatePasteButtonState();
+  }
+
+  const bulkCopyBtn = document.getElementById('btnBulkCopy');
+  if (bulkCopyBtn) {
+    bulkCopyBtn.onclick = () => {
+      const editor = document.getElementById('edContent');
+      if (!editor) return;
+
+      const selectedParas = editor.querySelectorAll('p.para-selected');
+      if (selectedParas.length === 0) return;
+
+      // 1. コピーする段落のクリーンなHTMLを一時配列に格納
+      window.globalCutParagraphs = Array.from(selectedParas).map(p => {
+        const clone = p.cloneNode(true);
+        const chk = clone.querySelector('.para-checkbox');
+        if (chk) chk.remove();
+        clone.classList.remove('para-selected');
+        clone.removeAttribute('class');
+        return clone.outerHTML;
+      });
+
+      // コピーはエディタから削除しないので、単に選択解除して保存する
+      cleanupAllSwipedParagraphs(editor);
+      saveEditorContentDirectly(editor);
+      updatePasteButtonState();
+
+      showToast("段落をコピーしました");
+    };
   }
 
   const bulkDelBtn = document.getElementById('btnBulkDelete');
@@ -1639,7 +1703,11 @@ async function migrateOldDataToUserAccount() {
     }
 
     // 5. Firebaseに一括書き込み
+    updates[`users/${state.uid}/migrated`] = true;
     await db.ref().update(updates);
+    
+    // localStorageにも保存
+    localStorage.setItem('hide_migration_banner', 'true');
     
     alert("🎉 過去のメモの引っ越しが完全に成功しました！\n自動的に画面がリロードされます。");
     window.location.reload();
@@ -1870,12 +1938,8 @@ function toggleParagraphSelect(p, editor) {
     chk.className = 'para-checkbox';
     chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
     chk.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-        <circle cx="6" cy="6" r="3"></circle>
-        <circle cx="6" cy="18" r="3"></circle>
-        <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
-        <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
-        <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+        <polyline points="20 6 9 17 4 12"></polyline>
       </svg>
     `;
     
@@ -1895,17 +1959,32 @@ function toggleParagraphSelect(p, editor) {
 // 一括削除ボタンの表示/非表示とアニメーションクラスのトグル
 function updateBulkDeleteButtonState(editor) {
   const bulkDelBtn = document.getElementById('btnBulkDelete');
-  if (!bulkDelBtn || !editor) return;
+  const bulkCopyBtn = document.getElementById('btnBulkCopy');
+  if (!editor) return;
 
   const selectedCount = editor.querySelectorAll('p.para-selected').length;
   if (selectedCount > 0) {
-    bulkDelBtn.style.display = 'flex';
-    bulkDelBtn.style.transform = 'scale(1.15)';
-    bulkDelBtn.classList.add('pulse-delete-active');
+    if (bulkDelBtn) {
+      bulkDelBtn.style.display = 'flex';
+      bulkDelBtn.style.transform = 'scale(1.15)';
+      bulkDelBtn.classList.add('pulse-delete-active');
+    }
+    if (bulkCopyBtn) {
+      bulkCopyBtn.style.display = 'flex';
+      bulkCopyBtn.style.transform = 'scale(1.15)';
+      bulkCopyBtn.classList.add('pulse-delete-active');
+    }
   } else {
-    bulkDelBtn.style.display = 'none';
-    bulkDelBtn.style.transform = 'scale(1)';
-    bulkDelBtn.classList.remove('pulse-delete-active');
+    if (bulkDelBtn) {
+      bulkDelBtn.style.display = 'none';
+      bulkDelBtn.style.transform = 'scale(1)';
+      bulkDelBtn.classList.remove('pulse-delete-active');
+    }
+    if (bulkCopyBtn) {
+      bulkCopyBtn.style.display = 'none';
+      bulkCopyBtn.style.transform = 'scale(1)';
+      bulkCopyBtn.classList.remove('pulse-delete-active');
+    }
   }
 }
 
@@ -2483,8 +2562,10 @@ function updatePasteButtonState() {
   if (!pasteBtn) return;
   if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
     pasteBtn.style.display = 'flex';
+    pasteBtn.classList.add('pulse-delete-active');
   } else {
     pasteBtn.style.display = 'none';
+    pasteBtn.classList.remove('pulse-delete-active');
   }
 }
 
