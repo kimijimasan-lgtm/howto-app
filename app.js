@@ -4,7 +4,7 @@
 // ============================================
 
 // ── Firebase CDN 読み込みエラー検出 ──
-if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' || typeof firebase.auth === 'undefined' || typeof firebase.storage === 'undefined') {
+if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' || typeof firebase.auth === 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     const errDiv = document.createElement('div');
     errDiv.style.position = 'fixed';
@@ -17,8 +17,8 @@ if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' 
     errDiv.style.lineHeight = '1.6';
     
     let reason = "インターネット環境がないか、セキュリティによりアプリが起動できません。";
-    if (typeof firebase !== 'undefined' && (typeof firebase.auth === 'undefined' || typeof firebase.storage === 'undefined')) {
-      reason = "ブラウザの強力なキャッシュ機能により、古いHTMLと新しいプログラムが混ざって競合しています（認証/ストレージライブラリが未ロード）。";
+    if (typeof firebase !== 'undefined' && typeof firebase.auth === 'undefined') {
+      reason = "ブラウザの強力なキャッシュ機能により、古いHTMLと新しいプログラムが混ざって競合しています（認証ライブラリが未ロード）。";
     }
 
     errDiv.innerHTML = `
@@ -49,7 +49,6 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-const storage = firebase.storage();
 
 // ── カラーパレット（24色・白テキストとのコントラスト保証） ──────────
 const COLORS = [
@@ -718,7 +717,8 @@ function renderCategory(container) {
       li.addEventListener('touchend', e => {
         const dx = e.changedTouches[0].clientX - txStart;
         const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
-        if (Math.abs(dx) > 50 && dy < 80) {
+        // 縦の移動(dy)が横移動(dx)の80%未満なら、斜めスワイプでもフリップを開く
+        if (Math.abs(dx) > 40 && dy < Math.abs(dx) * 0.8) {
           if (dx < 0) {
             // 他を閉じてこれを開く
             document.querySelectorAll('.article-item.swiped').forEach(el => {
@@ -1133,19 +1133,32 @@ function renderEditor(container) {
         </button>
         <span class="save-status editing" id="saveStatus">読み込み中…</span>
         <div class="editor-header-actions">
-          <button class="btn-icon danger" id="btnBulkDelete" title="選択した段落を一括削除" style="display: none; background: rgba(239, 68, 68, 0.25); border: 1px solid var(--danger); width: 42px; height: 42px; margin-right: 0.5rem; border-radius: 12px; color: var(--danger); transition: transform 0.2s; align-items: center; justify-content: center;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          <button class="btn-icon accent" id="btnBulkDelete" title="選択した段落をカット" style="display: none; background: rgba(249, 115, 22, 0.2); border: 1px solid var(--accent); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--accent); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <circle cx="6" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+              <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+              <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
             </svg>
           </button>
-          <button class="btn-icon" id="btnEdHome" title="ホームへ">
+          <button class="btn-icon accent" id="btnPaste" title="段落を貼り付け" style="display: none; background: rgba(249, 115, 22, 0.2); border: 1px solid var(--accent); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--accent); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            </svg>
+          </button>
+          <button class="btn-icon" id="btnAttach" title="ファイルを添付 (写真・PDF等)" style="margin-right: 0.35rem;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <button class="btn-icon" id="btnEdHome" title="ホームへ" style="margin-right: 0.35rem;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
             </svg>
           </button>
-          <button class="btn-icon danger" id="btnDel" title="削除">
+          <button class="btn-icon danger" id="btnDel" title="カード全体を削除">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -1158,6 +1171,7 @@ function renderEditor(container) {
         data-placeholder="1行目がタイトルになります
 
 2行目から本文を書いてください…"></div>
+      <input type="file" id="fileInput" style="display: none;" multiple />
     </div>`;
 
   document.getElementById('btnBack').onclick   = () => goBack();
@@ -1265,76 +1279,19 @@ function renderEditor(container) {
                   // 軽量なJPEGに圧縮 (品質0.75)
                   const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
                   
-                  // 貼り付け用画像タグの生成（美しくレスポンシブなスタイル）
+                  // 貼り付け用画像タグの生成（非編集属性を付与して変形ハンドルを完全消去！）
                   const img = document.createElement('img');
                   img.src = compressedBase64;
-                  img.style.maxWidth = '100%';
-                  img.style.height = 'auto';
-                  img.style.borderRadius = '12px';
-                  img.style.margin = '0.75rem 0';
-                  img.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-                  img.style.display = 'block';
+                  img.className = 'inserted-img';
+                  img.contentEditable = 'false';
 
                   // 画像を段落要素 <p> で囲って「段落扱い」にする
                   const pImg = document.createElement('p');
                   pImg.appendChild(img);
 
-                  // コピペ後のカーソル追従用改行
-                  const pNext = document.createElement('p');
-                  pNext.appendChild(document.createElement('br'));
-
-                  let inserted = false;
                   const editor = document.getElementById('edContent');
-
-                  // 保存された Range を使って、ペーストした瞬間のカーソル位置に段落を分割して挿入
-                  if (savedRange && editor) {
-                    try {
-                      // カーソル位置の親のPタグ（またはエディタ直下の子要素）を特定
-                      let parentP = savedRange.commonAncestorContainer;
-                      if (parentP.nodeType === Node.TEXT_NODE) {
-                        parentP = parentP.parentNode;
-                      }
-                      // エディタ直下の子要素まで親を遡る
-                      while (parentP && parentP.parentNode !== editor) {
-                        parentP = parentP.parentNode;
-                      }
-
-                      if (parentP && parentP.tagName === 'P') {
-                        // 現在の Range を利用して、カーソルの前後のコンテンツを分割する
-                        const range = savedRange.cloneRange();
-                        range.setEndAfter(parentP.lastChild || parentP);
-                        const afterContent = range.extractContents(); // カーソルより後ろを切り出す
-                        
-                        // 切り出された後ろのコンテンツを入れる新しい段落を作成
-                        const pNextNew = document.createElement('p');
-                        if (afterContent.textContent.trim() === '' && !afterContent.querySelector('img')) {
-                          pNextNew.appendChild(document.createElement('br'));
-                        } else {
-                          pNextNew.appendChild(afterContent);
-                        }
-                        
-                        // DOMに順番に挿入
-                        parentP.parentNode.insertBefore(pImg, parentP.nextSibling);
-                        pImg.parentNode.insertBefore(pNextNew, pImg.nextSibling);
-                        
-                        // 新しい Range を作成してカーソルを画像直後の改行に合わせる
-                        const newRange = document.createRange();
-                        newRange.setStart(pNextNew, 0);
-                        newRange.collapse(true);
-                        
-                        const currentSel = window.getSelection();
-                        currentSel.removeAllRanges();
-                        currentSel.addRange(newRange);
-                        inserted = true;
-                      }
-                    } catch (domErr) {
-                      console.warn("DOM Range insertion / split failed, fallback to appendChild:", domErr);
-                    }
-                  }
-                  
-                  if (!inserted && editor) {
-                    editor.appendChild(pImg);
-                    editor.appendChild(pNext);
+                  if (editor) {
+                    insertNodeAtCursor(pImg, editor);
                   }
                   
                   // 正規化処理を呼んでHTML構造をクリーンアップし、Firebaseに保存
@@ -1650,6 +1607,31 @@ let activeGlobalEditorClickCleanup = null;
 function normalizeEditorHTML(editor) {
   if (!editor) return;
 
+  // 🎥 YouTubeリンクの自動埋め込み展開
+  editor.querySelectorAll('p').forEach(p => {
+    const text = p.textContent.trim();
+    // YouTubeの動画URLパターンを検知
+    const ytMatch = text.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([^#\&\?\s]+)/i);
+    if (ytMatch) {
+      const videoId = ytMatch[4];
+      const iframeContainer = document.createElement('div');
+      iframeContainer.className = 'youtube-container';
+      iframeContainer.contentEditable = 'false';
+      iframeContainer.innerHTML = `
+        <iframe width="100%" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      `;
+      p.innerHTML = '';
+      p.appendChild(iframeContainer);
+      
+      // その下に操作用の空段落がなければ追加
+      if (!p.nextSibling) {
+        const nextP = document.createElement('p');
+        nextP.appendChild(document.createElement('br'));
+        p.parentNode.appendChild(nextP);
+      }
+    }
+  });
+
   let needNormalize = false;
   // 直接の子要素をチェック
   for (let child of editor.childNodes) {
@@ -1770,8 +1752,12 @@ function toggleParagraphSelect(p, editor) {
     chk.className = 'para-checkbox';
     chk.contentEditable = 'false'; // 編集不可にして誤入力を防ぐ
     chk.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-        <polyline points="20 6 9 17 4 12"></polyline>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+        <circle cx="6" cy="6" r="3"></circle>
+        <circle cx="6" cy="18" r="3"></circle>
+        <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+        <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+        <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
       </svg>
     `;
     
@@ -2126,6 +2112,13 @@ function renderLogin(container) {
 
 // ── 起動と認証の監視 ────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  // 🔍 貼られた画像をタップした際の拡大表示（ライトボックス）イベント
+  document.body.addEventListener('click', e => {
+    if (e.target.tagName === 'IMG' && (e.target.classList.contains('inserted-img') || e.target.closest('.editor-content') || e.target.closest('.article-body'))) {
+      showLightbox(e.target.src);
+    }
+  });
+
   const app = document.getElementById('app');
   app.innerHTML = '<div class="screen-login"><div class="loading-spinner">認証状態を確認中…</div></div>';
   app.classList.add('visible');
@@ -2142,3 +2135,207 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ── 添付ファイル（写真・書類）関連の補助関数 ────────────────
+
+// 写真の自動縮小・圧縮・挿入
+async function handleAttachedImage(file, editor) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const base64Src = evt.target.result;
+      const tempImg = new Image();
+      tempImg.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const MAX_SIZE = 800;
+        let width = tempImg.width;
+        let height = tempImg.height;
+        
+        if (width > MAX_SIZE || height > MAX_SIZE) {
+          if (width > height) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          } else {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(tempImg, 0, 0, width, height);
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+        
+        const img = document.createElement('img');
+        img.src = compressedBase64;
+        img.className = 'inserted-img';
+        img.contentEditable = 'false'; // リサイズコントロール等を完全に非表示にするための決定打
+        
+        const pImg = document.createElement('p');
+        pImg.appendChild(img);
+        
+        insertNodeAtCursor(pImg, editor);
+        resolve();
+      };
+      tempImg.src = base64Src;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ドキュメント（PDF等）の添付カード挿入
+async function handleAttachedDocument(file, editor) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const base64Data = evt.target.result;
+      
+      const docCard = document.createElement('div');
+      docCard.className = 'attached-file-card';
+      docCard.contentEditable = 'false';
+      
+      const sizeKB = (file.size / 1024).toFixed(1);
+      
+      docCard.innerHTML = `
+        <div class="file-card-inner" onclick="downloadBase64File('${base64Data}', '${file.name}')">
+          <div class="file-card-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </div>
+          <div class="file-card-info">
+            <div class="file-card-name">${esc(file.name)}</div>
+            <div class="file-card-size">${sizeKB} KB (タップで保存)</div>
+          </div>
+        </div>
+      `;
+      
+      const pDoc = document.createElement('p');
+      pDoc.appendChild(docCard);
+      
+      insertNodeAtCursor(pDoc, editor);
+      resolve();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// 添付ファイルのダウンロード処理（グローバル関数化）
+function downloadBase64File(base64Data, fileName) {
+  const a = document.createElement('a');
+  a.href = base64Data;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+window.downloadBase64File = downloadBase64File;
+
+// カーソル（キャレット）位置にノードを綺麗に挿入する共通関数（余分な空段落バグを完全に修正！）
+function insertNodeAtCursor(node, editor) {
+  const sel = window.getSelection();
+  let inserted = false;
+  
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      
+      // カーソル位置の親段落を特定
+      let parentP = range.commonAncestorContainer;
+      if (parentP.nodeType === Node.TEXT_NODE) {
+        parentP = parentP.parentNode;
+      }
+      while (parentP && parentP.parentNode !== editor) {
+        parentP = parentP.parentNode;
+      }
+      
+      if (parentP && parentP.tagName === 'P') {
+        // 親段落のテキストが完全に空（または <br> のみ）の場合
+        if (parentP.textContent.trim() === '' && !parentP.querySelector('img')) {
+          parentP.innerHTML = '';
+          parentP.appendChild(node.firstChild); // 空段落に中身を直接入れ替える
+          inserted = true;
+          
+          // その直後に空段落がなければ追加
+          if (!parentP.nextSibling) {
+            const nextP = document.createElement('p');
+            nextP.appendChild(document.createElement('br'));
+            parentP.parentNode.insertBefore(nextP, parentP.nextSibling);
+          }
+        } else {
+          // コンテンツがある場合は、その親段落の直後に挿入
+          parentP.parentNode.insertBefore(node, parentP.nextSibling);
+          inserted = true;
+          
+          // 新しく空段落を1つ追加し、そこにカーソルを合わせる
+          const nextP = document.createElement('p');
+          nextP.appendChild(document.createElement('br'));
+          node.parentNode.insertBefore(nextP, node.nextSibling);
+          
+          const newRange = document.createRange();
+          newRange.setStart(nextP, 0);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      }
+    }
+  }
+  
+  if (!inserted) {
+    editor.appendChild(node);
+    const nextP = document.createElement('p');
+    nextP.appendChild(document.createElement('br'));
+    editor.appendChild(nextP);
+  }
+}
+
+// クリップボードのペーストボタンの表示制御
+function updatePasteButtonState() {
+  const pasteBtn = document.getElementById('btnPaste');
+  if (!pasteBtn) return;
+  if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
+    pasteBtn.style.display = 'flex';
+  } else {
+    pasteBtn.style.display = 'none';
+  }
+}
+
+// 🔍 貼られた画像をタップした際の拡大表示（ライトボックス）
+function showLightbox(src) {
+  const overlay = document.createElement('div');
+  overlay.className = 'lightbox-overlay';
+  overlay.innerHTML = `
+    <div class="lightbox-content">
+      <img src="${src}" class="lightbox-img" />
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  
+  overlay.onclick = () => {
+    overlay.classList.add('fade-out');
+    setTimeout(() => overlay.remove(), 250);
+  };
+}
+
+// トーストメッセージ表示
+function showToast(msg) {
+  const oldToast = document.querySelector('.toast-msg');
+  if (oldToast) oldToast.remove();
+  
+  const toast = document.createElement('div');
+  toast.className = 'toast-msg';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('visible');
+  }, 10);
+  
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 300);
+  }, 2200);
+}
