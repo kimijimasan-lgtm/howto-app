@@ -4,7 +4,7 @@
 // ============================================
 
 // ── Firebase CDN 読み込みエラー検出 ──
-if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' || typeof firebase.auth === 'undefined') {
+if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' || typeof firebase.auth === 'undefined' || typeof firebase.storage === 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     const errDiv = document.createElement('div');
     errDiv.style.position = 'fixed';
@@ -17,8 +17,8 @@ if (typeof firebase === 'undefined' || typeof firebase.database === 'undefined' 
     errDiv.style.lineHeight = '1.6';
     
     let reason = "インターネット環境がないか、セキュリティによりアプリが起動できません。";
-    if (typeof firebase !== 'undefined' && typeof firebase.auth === 'undefined') {
-      reason = "ブラウザの強力なキャッシュ機能により、古いHTMLと新しいプログラムが混ざって競合しています（認証ライブラリが未ロード）。";
+    if (typeof firebase !== 'undefined' && (typeof firebase.auth === 'undefined' || typeof firebase.storage === 'undefined')) {
+      reason = "ブラウザの強力なキャッシュ機能により、古いHTMLと新しいプログラムが混ざって競合しています（認証/ストレージライブラリが未ロード）。";
     }
 
     errDiv.innerHTML = `
@@ -49,6 +49,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const storage = firebase.storage();
 
 // ── カラーパレット（24色・白テキストとのコントラスト保証） ──────────
 const COLORS = [
@@ -1009,56 +1010,55 @@ function handleExportAllAction(type, articles) {
       return `
         <div class="article-pdf-section" ${pageBreak} style="margin-bottom: 3rem;">
           ${headerHTML}
-          <h1 style="border-bottom: 2px solid #374151; padding-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; margin-bottom: 2rem; color: #111827;">${esc(title)}</h1>
-          <div class="content" style="font-size: 1.05rem; line-height: 1.85; color: #1f2937; word-break: break-all; white-space: pre-wrap;">${cleanBody}</div>
-        </div>`;
-    }).join('');
-
-    const element = document.createElement('div');
-    element.style.fontFamily = "'Noto Sans JP', sans-serif";
-    element.style.padding = "1cm";
-    element.innerHTML = cleanHTML;
-
-    const opt = {
-      margin:       1.5,
-      filename:     `${catName}_一括エクスポート.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true },
-      jsPDF:        { unit: 'cm', format: 'a4', orientation: 'portrait' }
-    };
-
-    html2pdf().set(opt).from(element).save();
-  }
-  else if (type === 'html') {
-    const articlesHTML = articles.map((art, idx) => {
-      const temp = document.createElement('div');
-      temp.innerHTML = art.content || '';
-      
-      const paragraphs = Array.from(temp.children);
-      let title = '（タイトルなし）';
-      let bodyHTML = '';
-      
-      if (paragraphs.length > 0) {
-        title = paragraphs[0].textContent || paragraphs[0].innerText || '（タイトルなし）';
-        bodyHTML = paragraphs.slice(1).map(p => {
-          // para-checkbox は除外してエクスポート
-          const pClone = p.cloneNode(true);
-          const chk = pClone.querySelector('.para-checkbox');
-          if (chk) chk.remove();
-          pClone.classList.remove('para-selected');
-          pClone.removeAttribute('class');
-          return pClone.outerHTML;
-        }).join('');
-      } else {
-        bodyHTML = '<p><br></p>';
-      }
-
-      let separatorHTML = '';
-      if (idx > 0) {
-        const pageNum = idx + 1;
-        separatorHTML = `<div class="page-separator">---- 【ここから${pageNum}ページ目】 ----</div>`;
-      } else {
-        separatorHTML = `<div class="page-separator" style="margin-top: 0.5rem; margin-bottom: 1.5rem;">---- 【1ページ目】 ----</div>`;
+           <div class="screen-editor">
+      <header class="app-header editor-header">
+        <button class="btn-icon" id="btnBack" title="一覧へ戻る">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="save-status editing" id="saveStatus">読み込み中…</span>
+        <div class="editor-header-actions">
+          <button class="btn-icon accent" id="btnBulkDelete" title="選択した段落をカット" style="display: none; background: rgba(249, 115, 22, 0.2); border: 1px solid var(--accent); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--accent); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <circle cx="6" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+              <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+              <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+            </svg>
+          </button>
+          <button class="btn-icon accent" id="btnPaste" title="段落を貼り付け" style="display: none; background: rgba(249, 115, 22, 0.2); border: 1px solid var(--accent); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--accent); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            </svg>
+          </button>
+          <button class="btn-icon" id="btnAttach" title="ファイルを添付 (写真・PDF等)" style="margin-right: 0.35rem;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <button class="btn-icon" id="btnEdHome" title="ホームへ" style="margin-right: 0.35rem;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/>
+            </svg>
+          </button>
+          <button class="btn-icon danger" id="btnDel" title="カード全体を削除">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div id="edContent" class="editor-content" contenteditable="true"
+        data-placeholder="1行目がタイトルになります
+ 
+2行目から本文を書いてください…"></div>
+      <input type="file" id="fileInput" style="display: none;" multiple />
+    </div>��ジ目】 ----</div>`;
       }
 
       return `
