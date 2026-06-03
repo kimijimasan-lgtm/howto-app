@@ -1452,107 +1452,7 @@ function renderEditor(container) {
     } catch (pasteErr) {
       console.error("Paste event listener error:", pasteErr);
     }
- function normalizeEditorHTML(editor) {
-  if (!editor) return;
-
-  // 全ての挿入画像に確実にcontentEditable="false"を付与して変形つまみ等の発生を根絶する
-  editor.querySelectorAll('img').forEach(img => {
-    img.setAttribute('contenteditable', 'false');
   });
-
-  // 🎥 YouTubeリンクの自動埋め込み展開 (Shorts URL にも対応)
-  editor.querySelectorAll('p').forEach(p => {
-    const text = p.textContent.trim();
-    const ytMatch = text.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([^#\&\?\s]+)/i);
-    if (ytMatch) {
-      const videoId = ytMatch[4];
-      const iframeContainer = document.createElement('div');
-      iframeContainer.className = 'youtube-container';
-      iframeContainer.contentEditable = 'false';
-      iframeContainer.innerHTML = `
-        <iframe width="100%" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-      `;
-      p.innerHTML = '';
-      p.appendChild(iframeContainer);
-      
-      // その下に操作用の空段落がなければ追加
-      if (!p.nextSibling) {
-        const nextP = document.createElement('p');
-        nextP.appendChild(document.createElement('br'));
-        p.parentNode.appendChild(nextP);
-      }
-    }
-  });
-
-  let needNormalize = false;
-  // 直接の子要素をチェック
-  for (let child of editor.childNodes) {
-    if (child.nodeType === Node.TEXT_NODE && child.textContent.trim() !== '') {
-      needNormalize = true;
-      break;
-    }
-    if (child.nodeType === Node.ELEMENT_NODE && child.tagName !== 'P' && !child.classList.contains('youtube-container')) {
-      needNormalize = true;
-      break;
-    }
-  }
-
-  if (!needNormalize) return;
-
-  const tempDiv = document.createElement('div');
-  let currentP = null;
-
-  // 子ノードを走査し、すべてPタグまたは特別に許可したDIVコンテナにする
-  Array.from(editor.childNodes).forEach(node => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      if (text.replace(/\s+/g, '') === '') {
-        return;
-      }
-      if (!currentP) {
-        currentP = document.createElement('p');
-        tempDiv.appendChild(currentP);
-      }
-      currentP.appendChild(document.createTextNode(text));
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const tagName = node.tagName;
-      if (tagName === 'P') {
-        currentP = node.cloneNode(true);
-        tempDiv.appendChild(currentP);
-      } else if (tagName === 'BR') {
-        currentP = document.createElement('p');
-        currentP.appendChild(document.createElement('br'));
-        tempDiv.appendChild(currentP);
-        currentP = null;
-      } else if (tagName === 'IMG') {
-        currentP = document.createElement('p');
-        const clonedImg = node.cloneNode(true);
-        clonedImg.setAttribute('contenteditable', 'false');
-        currentP.appendChild(clonedImg);
-        tempDiv.appendChild(currentP);
-        currentP = null;
-      } else if (node.classList.contains('youtube-container')) {
-        // 特別なコンテナはそのまま複製して維持（末尾飛ばしバグを解消）
-        tempDiv.appendChild(node.cloneNode(true));
-        currentP = null;
-      } else {
-        // P以外の要素の中身を取り出してPにする
-        const p = document.createElement('p');
-        while (node.firstChild) {
-          p.appendChild(node.firstChild);
-        }
-        if (node.className) p.className = node.className;
-        tempDiv.appendChild(p);
-        currentP = null;
-      }
-    }
-  });
-
-  const newHTML = tempDiv.innerHTML || '<p><br></p>';
-  if (editor.innerHTML !== newHTML) {
-    editor.innerHTML = newHTML;
-  }
-}
 
   // 初期コンテンツ読み込み
   db.ref(`users/${state.uid}/articles/${state.categoryId}/${state.articleId}`).once('value', snap => {
@@ -1791,11 +1691,15 @@ let activeGlobalEditorClickCleanup = null;
 function normalizeEditorHTML(editor) {
   if (!editor) return;
 
-  // 🎥 YouTubeリンクの自動埋め込み展開
+  // 全ての挿入画像に確実にcontentEditable="false"を付与して変形つまみ等の発生を根絶する
+  editor.querySelectorAll('img').forEach(img => {
+    img.setAttribute('contenteditable', 'false');
+  });
+
+  // 🎥 YouTubeリンクの自動埋め込み展開 (Shorts URL にも対応)
   editor.querySelectorAll('p').forEach(p => {
     const text = p.textContent.trim();
-    // YouTubeの動画URLパターンを検知
-    const ytMatch = text.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([^#\&\?\s]+)/i);
+    const ytMatch = text.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([^#\&\?\s]+)/i);
     if (ytMatch) {
       const videoId = ytMatch[4];
       const iframeContainer = document.createElement('div');
@@ -1823,7 +1727,7 @@ function normalizeEditorHTML(editor) {
       needNormalize = true;
       break;
     }
-    if (child.nodeType === Node.ELEMENT_NODE && child.tagName !== 'P') {
+    if (child.nodeType === Node.ELEMENT_NODE && child.tagName !== 'P' && !child.classList.contains('youtube-container')) {
       needNormalize = true;
       break;
     }
@@ -1834,7 +1738,7 @@ function normalizeEditorHTML(editor) {
   const tempDiv = document.createElement('div');
   let currentP = null;
 
-  // 子ノードを走査し、すべてPタグで囲う
+  // 子ノードを走査し、すべてPタグまたは特別に許可したDIVコンテナにする
   Array.from(editor.childNodes).forEach(node => {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent;
@@ -1858,8 +1762,14 @@ function normalizeEditorHTML(editor) {
         currentP = null;
       } else if (tagName === 'IMG') {
         currentP = document.createElement('p');
-        currentP.appendChild(node.cloneNode(true));
+        const clonedImg = node.cloneNode(true);
+        clonedImg.setAttribute('contenteditable', 'false');
+        currentP.appendChild(clonedImg);
         tempDiv.appendChild(currentP);
+        currentP = null;
+      } else if (node.classList.contains('youtube-container')) {
+        // 特別なコンテナはそのまま複製して維持（末尾飛ばしバグを解消）
+        tempDiv.appendChild(node.cloneNode(true));
         currentP = null;
       } else {
         // P以外の要素の中身を取り出してPにする
