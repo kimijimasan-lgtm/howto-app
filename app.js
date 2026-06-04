@@ -406,10 +406,22 @@ function renderHome(container) {
   if (isGuest) {
     if (bannerContainer) {
       bannerContainer.innerHTML = `
-        <div id="migrationBanner" style="position: relative; background: rgba(239, 68, 68, 0.1); border: 1.5px dashed var(--danger); border-radius: 14px; padding: 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
-          <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">⚠️ 現在ゲストとして一時的に開始しています。この状態ではブラウザのキャッシュをクリアするとメモが消えてしまい、PCとスマホの連動もできません。安全に保存・同期するには、一度サインアウトして Google アカウントでログインしてください。</span>
+        <div id="migrationBanner" style="position: relative; background: rgba(59, 130, 246, 0.1); border: 1.5px dashed #3b82f6; border-radius: 14px; padding: 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
+          <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 現在は無料ゲストとしてお試し利用中です。月額130円〜のプレミアム会員（Googleログイン）に登録すると、PCとスマホで自動同期され、万が一のデータ消失の心配もなくなります。</span>
+          <button class="btn-primary" id="btnGoToLogin" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end; background: #3b82f6; border: 1px solid #2563eb;">Googleログイン / 登録</button>
         </div>
       `;
+      
+      const goLoginBtn = document.getElementById('btnGoToLogin');
+      if (goLoginBtn) {
+        goLoginBtn.onclick = () => {
+          if (confirm("サインアウトしてログイン画面に戻りますか？")) {
+            firebase.auth().signOut().then(() => {
+              goTo('login');
+            });
+          }
+        };
+      }
     }
   } else if (user) {
     const hideLocal = localStorage.getItem('hide_migration_banner') === 'true';
@@ -425,8 +437,8 @@ function renderHome(container) {
           if (hasOldData) {
             bannerContainer.innerHTML = `
               <div id="migrationBanner" style="position: relative; background: rgba(249, 115, 22, 0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 2.2rem 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
-                <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
-                <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
+                <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（共有モード）で作成していたメモが見つかりました。このアカウントにインポート（引き継ぎ）して安全に保管しますか？</span>
+                <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">インポートを実行する</button>
                 <button id="btnCloseMigrationBanner" style="position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-sub); font-size: 1.25rem; cursor: pointer; padding: 4px; line-height: 1;" title="閉じる">&times;</button>
               </div>
             `;
@@ -434,9 +446,9 @@ function renderHome(container) {
             const migrateBtn = document.getElementById('btnMigrate');
             if (migrateBtn) {
               migrateBtn.onclick = async () => {
-                if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
+                if (confirm("過去の共有データを、このアカウントにインポート（引き継ぎ）します。よろしいですか？")) {
                   migrateBtn.disabled = true;
-                  migrateBtn.textContent = "引っ越しを実行中…";
+                  migrateBtn.textContent = "インポートを実行中…";
                   await migrateOldDataToUserAccount();
                 }
               };
@@ -1778,7 +1790,7 @@ async function duplicateArticle(artId, categoryId) {
   }
 }
 
-// 古いルート直下のデータを、現在ログインしているユーザーの個室へ移行（引っ越し）する
+// 古いルート直下のデータを、現在ログインしているユーザーの個室へ移行（インポート）する
 async function migrateOldDataToUserAccount() {
   try {
     if (!state.uid) {
@@ -1795,7 +1807,7 @@ async function migrateOldDataToUserAccount() {
     const articles = artSnap.val();
 
     if (!categories && !articles) {
-      alert("移行する過去のデータが見つかりませんでした。");
+      alert("インポートする過去のデータが見つかりませんでした。");
       const banner = document.getElementById('migrationBanner');
       if (banner) banner.remove();
       return;
@@ -1828,15 +1840,15 @@ async function migrateOldDataToUserAccount() {
     // localStorageにも保存
     localStorage.setItem('hide_migration_banner', 'true');
     
-    alert("🎉 過去のメモの引っ越しが完全に成功しました！\n自動的に画面がリロードされます。");
+    alert("🎉 過去のメモのインポート（引き継ぎ）が完全に成功しました！\n自動的に画面がリロードされます。");
     window.location.reload();
   } catch (err) {
     console.error("Migration failed:", err);
-    alert("データの引っ越し中にエラーが発生しました: " + err.message);
+    alert("データのインポート中にエラーが発生しました: " + err.message);
     const migrateBtn = document.getElementById('btnMigrate');
     if (migrateBtn) {
       migrateBtn.disabled = false;
-      migrateBtn.textContent = "引っ越しを実行する";
+      migrateBtn.textContent = "インポートを実行する";
     }
   }
 }
@@ -2081,6 +2093,34 @@ function initializeNativeParagraphActions(editor) {
   // 3. 入力や他箇所のタップによる自動解除を登録（副作用防止）
   editor.onkeydown = (e) => {
     cleanupAllSwipedParagraphs(editor);
+
+    // 太陽マーク「☀︎」(U+2600 + U+FE0E) 等の後ろでEnterキー改行した際の段落合体バグを解決するため、
+    // キャレット（カーソル）の直前にある異体字セレクタ(VS15/VS16)などの制御コードをEnter押下時に自動除去する
+    if (e.key === 'Enter') {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const container = range.startContainer;
+        if (container.nodeType === Node.TEXT_NODE) {
+          const text = container.textContent;
+          const offset = range.startOffset;
+          if (offset > 0) {
+            const lastChar = text.charCodeAt(offset - 1);
+            if (lastChar === 0xFE0E || lastChar === 0xFE0F || lastChar === 0x200B) {
+              const cleanedText = text.substring(0, offset - 1) + text.substring(offset);
+              container.textContent = cleanedText;
+              
+              // キャレット位置を1文字前に戻して調整
+              const newRange = document.createRange();
+              newRange.setStart(container, offset - 1);
+              newRange.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(newRange);
+            }
+          }
+        }
+      }
+    }
   };
 
   // フォーカスイン時にも解除
@@ -2237,6 +2277,20 @@ function bindParagraphSwipeEvents(editor) {
   const touchStartHandler = e => {
     txStart = e.touches[0].clientX;
     tyStart = e.touches[0].clientY;
+
+    // 編集状態でキーボードが開いている際、フリップしようとタッチした瞬間にフォーカスを外し（blur）、
+    // 画面スクロール位置を最上部に強制リセットして、隠れていたトップバーを即座に復活させる
+    const editorEl = document.getElementById('edContent');
+    if (editorEl && document.activeElement === editorEl) {
+      editorEl.blur();
+      setTimeout(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        const app = document.getElementById('app');
+        if (app) app.scrollTop = 0;
+        document.body.scrollTop = 0;
+        document.documentElement.scrollTop = 0;
+      }, 50);
+    }
   };
   const touchEndHandler = e => {
     // 文字選択（範囲選択）中はフリップ動作をキャンセル
@@ -2847,7 +2901,7 @@ function setupImageDeleteButtons(editor) {
 
       const btn = document.createElement('button');
       btn.className = 'img-delete-btn';
-      btn.innerHTML = '🗑️';
+      btn.innerHTML = '✖';
       btn.title = '画像を削除';
       btn.contentEditable = 'false';
       btn.style.position = 'absolute';
