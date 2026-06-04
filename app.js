@@ -414,35 +414,42 @@ function renderHome(container) {
   } else if (user) {
     const hideLocal = localStorage.getItem('hide_migration_banner') === 'true';
     if (!hideLocal && bannerContainer) {
-      db.ref(`users/${state.uid}/migrated`).once('value').then(snap => {
+      db.ref(`users/${state.uid}/migrated`).once('value').then(async snap => {
         const migrated = snap.val();
         if (!migrated && bannerContainer) {
-          bannerContainer.innerHTML = `
-            <div id="migrationBanner" style="position: relative; background: rgba(249, 115, 22, 0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 2.2rem 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
-              <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
-              <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
-              <button id="btnCloseMigrationBanner" style="position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-sub); font-size: 1.25rem; cursor: pointer; padding: 4px; line-height: 1;" title="閉じる">&times;</button>
-            </div>
-          `;
+          // 移行対象の古い共有データが本当に存在するかチェックする
+          const catSnap = await db.ref('categories').once('value').catch(() => null);
+          const artSnap = await db.ref('articles').once('value').catch(() => null);
+          const hasOldData = (catSnap && catSnap.exists()) || (artSnap && artSnap.exists());
+          
+          if (hasOldData) {
+            bannerContainer.innerHTML = `
+              <div id="migrationBanner" style="position: relative; background: rgba(249, 115, 22, 0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 2.2rem 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
+                <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（QRコード方式）で書いていたメモを、このアカウントの安全な部屋に引っ越しさせますか？</span>
+                <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">引っ越しを実行する</button>
+                <button id="btnCloseMigrationBanner" style="position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-sub); font-size: 1.25rem; cursor: pointer; padding: 4px; line-height: 1;" title="閉じる">&times;</button>
+              </div>
+            `;
 
-          const migrateBtn = document.getElementById('btnMigrate');
-          if (migrateBtn) {
-            migrateBtn.onclick = async () => {
-              if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
-                migrateBtn.disabled = true;
-                migrateBtn.textContent = "引っ越しを実行中…";
-                await migrateOldDataToUserAccount();
-              }
-            };
-          }
+            const migrateBtn = document.getElementById('btnMigrate');
+            if (migrateBtn) {
+              migrateBtn.onclick = async () => {
+                if (confirm("過去にログインなしで書いていたメモを、このアカウントの安全な部屋に引っ越しさせます。よろしいですか？")) {
+                  migrateBtn.disabled = true;
+                  migrateBtn.textContent = "引っ越しを実行中…";
+                  await migrateOldDataToUserAccount();
+                }
+              };
+            }
 
-          const closeBtn = document.getElementById('btnCloseMigrationBanner');
-          if (closeBtn) {
-            closeBtn.onclick = () => {
-              localStorage.setItem('hide_migration_banner', 'true');
-              const banner = document.getElementById('migrationBanner');
-              if (banner) banner.remove();
-            };
+            const closeBtn = document.getElementById('btnCloseMigrationBanner');
+            if (closeBtn) {
+              closeBtn.onclick = () => {
+                localStorage.setItem('hide_migration_banner', 'true');
+                const banner = document.getElementById('migrationBanner');
+                if (banner) banner.remove();
+              };
+            }
           }
         }
       }).catch(err => console.error("Error reading migration state:", err));
@@ -500,13 +507,16 @@ function renderHome(container) {
         setTimeout(() => {
           const targetCard = grid.querySelector(`[data-id="${targetId}"]`);
           if (targetCard) {
-            // 対象カードを画面内にスムーズにスクロールさせる
+            // 1. まず画面をスムーズにスクロールさせてパネルを表示させる
             targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             
-            targetCard.classList.add('just-visited-flash');
+            // 2. スクロールが到着するタイミング（400ms遅延）でピカピカッと白く光らせる！
             setTimeout(() => {
-              targetCard.classList.remove('just-visited-flash');
-            }, 1000);
+              targetCard.classList.add('just-visited-flash');
+              setTimeout(() => {
+                targetCard.classList.remove('just-visited-flash');
+              }, 1000);
+            }, 400);
           }
         }, 350); // 画面フェードイン（180ms遅延+200msトランジション）の完了に合わせて発火
         window.justVisitedCategoryId = null; // 即座にクリアして多重発火防止
@@ -735,6 +745,12 @@ function renderCategory(container) {
       return;
     }
 
+    // メモが1件以上存在するため、自動作成ロックフラグを削除（移動・削除での空補充を可能にする）
+    const autoCreateKey = `${state.uid}_${state.categoryId}`;
+    if (window.autoCreateFlags && window.autoCreateFlags[autoCreateKey]) {
+      delete window.autoCreateFlags[autoCreateKey];
+    }
+
     const arts = Object.entries(data)
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => {
@@ -902,7 +918,8 @@ async function showMoveModal(artId, currentCatId) {
   if (!cats) return;
   const others = Object.entries(cats)
     .filter(([id]) => id !== currentCatId)
-    .map(([id, v]) => ({ id, name: v.name, color: v.color }));
+    .map(([id, v]) => ({ id, name: v.name, color: v.color, order: v.order || 0 }))
+    .sort((a, b) => a.order - b.order); // ホーム画面と同じ並び順（order昇順）にする
   if (others.length === 0) { alert('移動先のカテゴリがありません'); return; }
 
   const overlay = document.createElement('div');
@@ -1893,8 +1910,21 @@ function normalizeEditorHTML(editor) {
   // Pタグの内部の BR タグを境界として、Pタグを別々のPタグ（段落）に自動分割する！
   // これにより画面上の改行がすべて個別の段落として扱われるようになります。
   let hasSplit = false;
+
+  // 入力中・編集中の段落のDOM破壊によるカーソル（キャレット）消失バグを防ぐため、現在の選択位置を取得
+  const sel = window.getSelection();
+  let activeNode = null;
+  if (sel && sel.rangeCount > 0) {
+    activeNode = sel.getRangeAt(0).startContainer;
+  }
+
   const pTags = Array.from(editor.querySelectorAll('p'));
   pTags.forEach(p => {
+    // 現在カーソルがある段落は、文字入力中の自動マージ等のバグを防ぐため分割対象外にする
+    if (activeNode && (p.contains(activeNode) || p === activeNode)) {
+      return;
+    }
+
     const brs = p.querySelectorAll('br');
     // 単なる空段落 <p><br></p> は分割対象外
     if (brs.length === 0 || (brs.length === 1 && p.textContent.trim() === '' && !p.querySelector('img'))) {
@@ -2060,6 +2090,15 @@ function initializeNativeParagraphActions(editor) {
 
   // フォーカスアウト（blur）時にも正規化を走らせて保存をトリガーする
   editor.addEventListener('blur', () => {
+    // iOS Safari等の仮想キーボード縮小時の表示領域崩れ（スクロールズレ・ヘッダー消失）バグを完全解消する
+    setTimeout(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      const app = document.getElementById('app');
+      if (app) app.scrollTop = 0;
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+    }, 80);
+
     normalizeEditorHTML(editor);
     editor.dispatchEvent(new Event('input'));
   });

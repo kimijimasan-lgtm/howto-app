@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <script>
     window.onerror = function(message, source, lineno, colno, error) {
+      // iOS Safariの共有メニューや外部の無害な拡張機能バグ（Script error. / 行数0など）は無視する
+      if (message === 'Script error.' && (lineno === 0 || !source)) {
+        return true; // エラー表示を抑止してブラウザ標準処理（何もしない）に任せる
+      }
+      if (message && (message.includes('ResizeObserver') || message.includes('Script error'))) {
+        if (lineno === 0 || !source) return true;
+      }
+
       const errDiv = document.createElement('div');
       errDiv.style.position = 'fixed';
       errDiv.style.inset = '0';
