@@ -500,6 +500,9 @@ function renderHome(container) {
         setTimeout(() => {
           const targetCard = grid.querySelector(`[data-id="${targetId}"]`);
           if (targetCard) {
+            // 対象カードを画面内にスムーズにスクロールさせる
+            targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            
             targetCard.classList.add('just-visited-flash');
             setTimeout(() => {
               targetCard.classList.remove('just-visited-flash');
@@ -610,8 +613,19 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
     if (catId) {
       await db.ref(`users/${state.uid}/categories/${catId}`).update({ name, color: selectedGrad });
     } else {
-      await db.ref(`users/${state.uid}/categories`).push({
+      const newCatRef = db.ref(`users/${state.uid}/categories`).push();
+      const newCatId = newCatRef.key;
+      // 1. カテゴリ自体を作成
+      await newCatRef.set({
         name, color: selectedGrad, order: Date.now(), createdAt: Date.now()
+      });
+      // 2. 作成されたカテゴリの中に最初から「タイトルのない新規文書」を1枚同時に作成する
+      const newArtRef = db.ref(`users/${state.uid}/articles/${newCatId}`).push();
+      await newArtRef.set({
+        content: '<p><br></p>', // 空の段落
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        order: Date.now()
       });
     }
     close();
@@ -2789,6 +2803,9 @@ function setupImageDeleteButtons(editor) {
       removeDeleteBtn();
       activeImg = img;
 
+      const screenEditor = editor.closest('.screen-editor');
+      if (!screenEditor) return;
+
       const btn = document.createElement('button');
       btn.className = 'img-delete-btn';
       btn.innerHTML = '🗑️';
@@ -2796,33 +2813,33 @@ function setupImageDeleteButtons(editor) {
       btn.contentEditable = 'false';
       btn.style.position = 'absolute';
 
-      // エディタを基準にした絶対座標を計算
+      // screenEditor を基準とした相対座標を計算して配置を安定させる
       const rect = img.getBoundingClientRect();
-      const editorRect = editor.getBoundingClientRect();
-      const top = rect.top - editorRect.top + editor.scrollTop;
-      const left = rect.left - editorRect.left + editor.scrollLeft;
+      const parentRect = screenEditor.getBoundingClientRect();
+      const top = rect.top - parentRect.top;
+      const left = rect.left - parentRect.left;
 
       btn.style.top = `${top + 8}px`;
       btn.style.left = `${left + 8}px`;
       btn.style.zIndex = '150';
 
+      // mousedownでフォーカスがエディタから移動するのを防ぎ、blurイベントによるボタン消滅を防ぐ
+      btn.onmousedown = (event) => {
+        event.preventDefault();
+      };
+
       btn.onclick = (event) => {
         event.stopPropagation();
         event.preventDefault();
         if (confirm('この画像を削除しますか？')) {
-          let parent = img.parentNode;
-          if (parent && parent.tagName === 'P') {
-            parent.remove();
-          } else {
-            img.remove();
-          }
+          img.remove(); // 親段落ごとではなく画像タグのみを安全に削除
           removeDeleteBtn();
           normalizeEditorHTML(editor);
           editor.dispatchEvent(new Event('input'));
         }
       };
 
-      editor.appendChild(btn);
+      screenEditor.appendChild(btn);
       activeDeleteBtn = btn;
     } else {
       // ホバー対象が画像以外で、ボタン自体でもない場合
