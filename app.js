@@ -423,49 +423,6 @@ function renderHome(container) {
         };
       }
     }
-  } else if (user) {
-    const hideLocal = localStorage.getItem('hide_migration_banner') === 'true';
-    if (!hideLocal && bannerContainer) {
-      db.ref(`users/${state.uid}/migrated`).once('value').then(async snap => {
-        const migrated = snap.val();
-        if (!migrated && bannerContainer) {
-          // 移行対象の古い共有データが本当に存在するかチェックする
-          const catSnap = await db.ref('categories').once('value').catch(() => null);
-          const artSnap = await db.ref('articles').once('value').catch(() => null);
-          const hasOldData = (catSnap && catSnap.exists()) || (artSnap && artSnap.exists());
-          
-          if (hasOldData) {
-            bannerContainer.innerHTML = `
-              <div id="migrationBanner" style="position: relative; background: rgba(249, 115, 22, 0.1); border: 1.5px dashed var(--accent); border-radius: 14px; padding: 0.85rem 2.2rem 0.85rem 1rem; margin: 0.75rem 0.75rem 0 0.75rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; text-align: left; animation: popIn 0.3s ease;">
-                <span style="font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.5;">💡 過去にログインなし（共有モード）で作成していたメモが見つかりました。このアカウントにインポート（引き継ぎ）して安全に保管しますか？</span>
-                <button class="btn-primary" id="btnMigrate" style="font-size: 0.78rem; padding: 0.4rem 0.9rem; border-radius: 8px; font-weight: 700; align-self: flex-end;">インポートを実行する</button>
-                <button id="btnCloseMigrationBanner" style="position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-sub); font-size: 1.25rem; cursor: pointer; padding: 4px; line-height: 1;" title="閉じる">&times;</button>
-              </div>
-            `;
-
-            const migrateBtn = document.getElementById('btnMigrate');
-            if (migrateBtn) {
-              migrateBtn.onclick = async () => {
-                if (confirm("過去の共有データを、このアカウントにインポート（引き継ぎ）します。よろしいですか？")) {
-                  migrateBtn.disabled = true;
-                  migrateBtn.textContent = "インポートを実行中…";
-                  await migrateOldDataToUserAccount();
-                }
-              };
-            }
-
-            const closeBtn = document.getElementById('btnCloseMigrationBanner');
-            if (closeBtn) {
-              closeBtn.onclick = () => {
-                localStorage.setItem('hide_migration_banner', 'true');
-                const banner = document.getElementById('migrationBanner');
-                if (banner) banner.remove();
-              };
-            }
-          }
-        }
-      }).catch(err => console.error("Error reading migration state:", err));
-    }
   }
   
   const signoutBtn = document.getElementById('btnSignOut');
@@ -723,204 +680,203 @@ function renderCategory(container) {
 
   // 記事一覧
   const aRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`);
-  const aHandler = aRef.on('value', snap => {
-    const list = document.getElementById('artList');
-    if (!list) return;
+  
+  // 1. カテゴリに入った瞬間に1回だけ件数をチェックして0件なら補充（無限非同期ループ防止）
+  aRef.once('value').then(async snap => {
     const data = snap.val();
-
     if (!data || Object.keys(data).length === 0) {
-      const autoCreateKey = `${state.uid}_${state.categoryId}`;
-      window.autoCreateFlags = window.autoCreateFlags || {};
-      
-      if (!window.autoCreateFlags[autoCreateKey]) {
-        window.autoCreateFlags[autoCreateKey] = true;
-        // メモが1枚もない場合、自動的に空の新規文書をバックグラウンドで作成
-        const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
-        newRef.set({
+      const newRef = aRef.push();
+      try {
+        await newRef.set({
           content: '<p><br></p>', // 空の段落を初期設定
           createdAt: Date.now(),
           updatedAt: Date.now(),
           order: Date.now()
-        }).catch(err => {
-          console.error("自動メモ作成エラー:", err);
-          // 失敗した場合のみ、5秒後に再試行を許可するようフラグをクリア
+        });
+      } catch (err) {
+        console.error("初期メモの補充に失敗しました:", err);
+      }
+    }
+    
+    // 2. 補充完了後（または既存データがある場合）にのみ、通常の監視リスナーを有効化
+    bindArticlesListener();
+  }).catch(err => {
+    console.error("初期チェック失敗:", err);
+    bindArticlesListener();
+  });
+
+  function bindArticlesListener() {
+    const aHandler = aRef.on('value', snap => {
+      const list = document.getElementById('artList');
+      if (!list) return;
+      const data = snap.val();
+
+      // リスナー内での自動補充（set）は絶対に排除する（ループ・フリーズ防止）
+      if (!data || Object.keys(data).length === 0) {
+        list.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📝</div>
+            <p>メモがありません</p>
+          </div>`;
+        return;
+      }
+
+      const arts = Object.entries(data)
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => {
+          if (a.order !== undefined && b.order !== undefined) return b.order - a.order; // 新規が上に来るよう降順ソート
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
+        });
+
+      list.innerHTML = '';
+      arts.forEach((art, i) => {
+        // HTML → 行分割（<p>や<br>を改行として扱う）
+        const textLines = htmlToLines(art.content);
+        const title   = textLines[0] || '（タイトルなし）';
+        const preview = textLines.slice(1).join(' ').slice(0, 60) || '内容がありません';
+
+        const li = document.createElement('li');
+        li.className = 'article-item';
+        li.dataset.id = art.id;
+        li.style.animationDelay = `${i * 40}ms`;
+
+        // 直前編集カードのフラッシュ効果（2秒間）
+        if (art.id === justEditedArticleId) {
+          li.classList.add('just-edited');
           setTimeout(() => {
-            if (window.autoCreateFlags) {
-              delete window.autoCreateFlags[autoCreateKey];
+            li.classList.remove('just-edited');
+            justEditedArticleId = null; // アニメーション終了後にクリア
+          }, 2000);
+        }
+        li.innerHTML = `
+          <div class="article-inner">
+            <div class="article-title">${esc(title)}</div>
+            <div class="article-preview">${esc(preview)}</div>
+          </div>
+          <div class="swipe-actions">
+            <button class="swipe-action-btn swipe-action-duplicate">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              複写
+            </button>
+            <button class="swipe-action-btn swipe-action-move">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              移動
+            </button>
+            <button class="swipe-action-btn swipe-action-delete">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              削除
+            </button>
+            <button class="swipe-action-btn swipe-action-cancel" style="background: #4b5563;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              戻る
+            </button>
+          </div>`;
+
+        // カード本体タップ→エディター
+        li.querySelector('.article-inner').onclick = () => {
+          goTo('editor', state.categoryId, art.id);
+        };
+
+        // 複写ボタン
+        li.querySelector('.swipe-action-duplicate').onclick = async e => {
+          e.stopPropagation();
+          li.classList.remove('swiped');
+          await duplicateArticle(art.id, state.categoryId);
+        };
+
+        // 移動ボタン
+        li.querySelector('.swipe-action-move').onclick = e => {
+          e.stopPropagation();
+          li.classList.remove('swiped');
+          showMoveModal(art.id, state.categoryId);
+        };
+
+        // 削除ボタン
+        li.querySelector('.swipe-action-delete').onclick = e => {
+          e.stopPropagation();
+          li.classList.remove('swiped');
+          deleteArticleById(art.id, state.categoryId);
+        };
+
+        // キャンセル（戻る）ボタン
+        li.querySelector('.swipe-action-cancel').onclick = e => {
+          e.stopPropagation();
+          li.classList.remove('swiped');
+        };
+
+        // 左スワイプ検出
+        let txStart = 0, tyStart = 0;
+        li.addEventListener('touchstart', e => {
+          txStart = e.touches[0].clientX;
+          tyStart = e.touches[0].clientY;
+        }, { passive: true });
+        li.addEventListener('touchend', e => {
+          const dx = e.changedTouches[0].clientX - txStart;
+          const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
+          if (Math.abs(dx) > 40 && dy < Math.abs(dx) * 0.8) {
+            if (dx < 0) {
+              document.querySelectorAll('.article-item.swiped').forEach(el => {
+                if (el !== li) el.classList.remove('swiped');
+              });
+              li.classList.add('swiped');
+            } else {
+              li.classList.remove('swiped');
             }
-          }, 5000);
+          }
+        }, { passive: true });
+
+        list.appendChild(li);
+      });
+
+      // 直前に編集したカードがあれば、見えている範囲に自動スクロールして連れていく
+      const justEditedEl = list.querySelector('.just-edited');
+      if (justEditedEl) {
+        setTimeout(() => {
+          justEditedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 150);
+      }
+
+      // ドラッグ並び替え初期化
+      if (window.Sortable) {
+        if (artSortable) artSortable.destroy();
+        artSortable = Sortable.create(list, {
+          animation: 150,
+          delay: 300,
+          delayOnTouchOnly: true,
+          forceFallback: true,
+          fallbackOnBody: false,
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen',
+          fallbackClass: 'sortable-fallback-simple',
+          onStart: () => {
+            isDragging = true;
+            list.style.overflow = 'visible';
+          },
+          onEnd: async evt => {
+            isDragging = false;
+            list.style.overflow = '';
+            const items = list.querySelectorAll('.article-item');
+            const updates = {};
+            const total = items.length;
+            items.forEach((item, i) => {
+              updates[`users/${state.uid}/articles/${state.categoryId}/${item.dataset.id}/order`] = total - i;
+            });
+            await db.ref().update(updates);
+          }
         });
       }
-      
-      // 生成されるまで一時的にローディング表示にする（空警告バナーは出さない）
-      list.innerHTML = '<div class="loading-spinner">自動作成中…</div>';
-      return;
-    }
-
-    // メモが1件以上存在するため、自動作成ロックフラグを削除（移動・削除での空補充を可能にする）
-    const autoCreateKey = `${state.uid}_${state.categoryId}`;
-    if (window.autoCreateFlags && window.autoCreateFlags[autoCreateKey]) {
-      delete window.autoCreateFlags[autoCreateKey];
-    }
-
-    const arts = Object.entries(data)
-      .map(([id, v]) => ({ id, ...v }))
-      .sort((a, b) => {
-        if (a.order !== undefined && b.order !== undefined) return b.order - a.order; // 新規（order大）が上に来るよう降順ソート
-        return (b.updatedAt || 0) - (a.updatedAt || 0);
-      });
-
-    list.innerHTML = '';
-    arts.forEach((art, i) => {
-      // HTML → 行分割（<p>や<br>を改行として扱う）
-      const textLines = htmlToLines(art.content);
-      const title   = textLines[0] || '（タイトルなし）';
-      const preview = textLines.slice(1).join(' ').slice(0, 60) || '内容がありません';
-
-      const li = document.createElement('li');
-      li.className = 'article-item';
-      li.dataset.id = art.id;
-      li.style.animationDelay = `${i * 40}ms`;
-
-      // 直前編集カードのフラッシュ効果（2秒間）
-      if (art.id === justEditedArticleId) {
-        li.classList.add('just-edited');
-        setTimeout(() => {
-          li.classList.remove('just-edited');
-          justEditedArticleId = null; // アニメーション終了後にクリア
-        }, 2000);
-      }
-      li.innerHTML = `
-        <div class="article-inner">
-          <div class="article-title">${esc(title)}</div>
-          <div class="article-preview">${esc(preview)}</div>
-        </div>
-        <div class="swipe-actions">
-          <button class="swipe-action-btn swipe-action-duplicate">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            複写
-          </button>
-          <button class="swipe-action-btn swipe-action-move">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            移動
-          </button>
-          <button class="swipe-action-btn swipe-action-delete">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-            削除
-          </button>
-          <button class="swipe-action-btn swipe-action-cancel" style="background: #4b5563;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-            戻る
-          </button>
-        </div>`;
-
-      // カード本体タップ→エディター
-      li.querySelector('.article-inner').onclick = () => {
-        goTo('editor', state.categoryId, art.id);
-      };
-
-      // 複写ボタン
-      li.querySelector('.swipe-action-duplicate').onclick = async e => {
-        e.stopPropagation();
-        li.classList.remove('swiped');
-        await duplicateArticle(art.id, state.categoryId);
-      };
-
-      // 移動ボタン
-      li.querySelector('.swipe-action-move').onclick = e => {
-        e.stopPropagation();
-        li.classList.remove('swiped');
-        showMoveModal(art.id, state.categoryId);
-      };
-
-      // 削除ボタン
-      li.querySelector('.swipe-action-delete').onclick = e => {
-        e.stopPropagation();
-        li.classList.remove('swiped');
-        deleteArticleById(art.id, state.categoryId);
-      };
-
-      // キャンセル（戻る）ボタン
-      li.querySelector('.swipe-action-cancel').onclick = e => {
-        e.stopPropagation();
-        li.classList.remove('swiped');
-      };
-
-      // 左スワイプ検出
-      let txStart = 0, tyStart = 0;
-      li.addEventListener('touchstart', e => {
-        txStart = e.touches[0].clientX;
-        tyStart = e.touches[0].clientY;
-      }, { passive: true });
-      li.addEventListener('touchend', e => {
-        const dx = e.changedTouches[0].clientX - txStart;
-        const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
-        // 縦の移動(dy)が横移動(dx)の80%未満なら、斜めスワイプでもフリップを開く
-        if (Math.abs(dx) > 40 && dy < Math.abs(dx) * 0.8) {
-          if (dx < 0) {
-            // 他を閉じてこれを開く
-            document.querySelectorAll('.article-item.swiped').forEach(el => {
-              if (el !== li) el.classList.remove('swiped');
-            });
-            li.classList.add('swiped');
-          } else {
-            li.classList.remove('swiped');
-          }
-        }
-      }, { passive: true });
-
-      list.appendChild(li);
     });
-
-    // 直前に編集したカードがあれば、見えている範囲に自動スクロールして連れていく
-    const justEditedEl = list.querySelector('.just-edited');
-    if (justEditedEl) {
-      setTimeout(() => {
-        justEditedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 150);
-    }
-
-    // ドラッグ並び替え初期化
-    if (window.Sortable) {
-      if (artSortable) artSortable.destroy();
-      artSortable = Sortable.create(list, {
-        animation: 150,
-        delay: 300,
-        delayOnTouchOnly: true,
-        forceFallback: true,            // タッチ操作の並び替え安定化
-        fallbackOnBody: false,          // bodyに移設せず位置ズレを完全防止
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        fallbackClass: 'sortable-fallback-simple', // 拡大・ズレのない極めてシンプルな指追従スタイル
-        onStart: () => {
-          isDragging = true; // 並び替えドラッグ中フラグをON
-          list.style.overflow = 'visible';
-        },
-        onEnd: async evt => {
-          isDragging = false; // 並び替えドラッグ中フラグをOFF
-          list.style.overflow = '';
-          const items = list.querySelectorAll('.article-item');
-          const updates = {};
-          const total = items.length;
-          items.forEach((item, i) => {
-            // 降順ソートに合わせて、上にあるものほど order を大きくする（total - i）
-            updates[`users/${state.uid}/articles/${state.categoryId}/${item.dataset.id}/order`] = total - i;
-          });
-          await db.ref().update(updates);
-        }
-      });
-    }
-  });
-  listeners.push(() => {
-    aRef.off('value', aHandler);
-    if (artSortable) { artSortable.destroy(); artSortable = null; }
-  });
+    listeners.push(() => {
+      aRef.off('value', aHandler);
+      if (artSortable) { artSortable.destroy(); artSortable = null; }
+    });
+  }
 }
 
 // カードを別カテゴリへ移動するモーダル
@@ -961,8 +917,26 @@ async function showMoveModal(artId, currentCatId) {
       const artSnap = await db.ref(`users/${state.uid}/articles/${currentCatId}/${artId}`).once('value');
       const artData = artSnap.val();
       if (!artData) { overlay.remove(); return; }
+
+      // 移動元の記事が最後の1件かどうかチェック（1件以下の場合は自動補充フラグを立てる）
+      const srcArticlesSnap = await db.ref(`users/${state.uid}/articles/${currentCatId}`).once('value');
+      const srcArticles = srcArticlesSnap.val();
+      const isLastOne = srcArticles && Object.keys(srcArticles).length <= 1;
+
       await db.ref(`users/${state.uid}/articles/${destCatId}/${artId}`).set(artData);
       await db.ref(`users/${state.uid}/articles/${currentCatId}/${artId}`).remove();
+
+      // 最後の1件だった場合は、確実に新しいメモ（空文書）を補充する
+      if (isLastOne) {
+        const newRef = db.ref(`users/${state.uid}/articles/${currentCatId}`).push();
+        await newRef.set({
+          content: '<p><br></p>',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          order: Date.now()
+        });
+      }
+
       overlay.remove();
     };
   });
@@ -970,7 +944,23 @@ async function showMoveModal(artId, currentCatId) {
 
 // カードを削除
 async function deleteArticleById(artId, catId) {
+  // 削除前の記事が最後の1件かどうかチェック
+  const srcArticlesSnap = await db.ref(`users/${state.uid}/articles/${catId}`).once('value');
+  const srcArticles = srcArticlesSnap.val();
+  const isLastOne = srcArticles && Object.keys(srcArticles).length <= 1;
+
   await db.ref(`users/${state.uid}/articles/${catId}/${artId}`).remove();
+
+  // 最後の1件だった場合は、確実に新しいメモ（空文書）を補充する
+  if (isLastOne) {
+    const newRef = db.ref(`users/${state.uid}/articles/${catId}`).push();
+    await newRef.set({
+      content: '<p><br></p>',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      order: Date.now()
+    });
+  }
 }
 
 // ── 一括エクスポート選択モーダルの表示 ────────────────
@@ -1696,6 +1686,9 @@ function renderEditor(container) {
 
     // 自動保存（1秒デバウンス）
     editor.oninput = () => {
+      // 太陽マーク「☀︎」などのバグを誘発する見えない文字を除去
+      cleanupInvalidUnicodeCharacters(editor);
+
       // ユーザーが直接文字編集を行った場合、ペーストバッファをクリア（キャンセル）する
       if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
         window.globalCutParagraphs = null;
@@ -1790,68 +1783,6 @@ async function duplicateArticle(artId, categoryId) {
   }
 }
 
-// 古いルート直下のデータを、現在ログインしているユーザーの個室へ移行（インポート）する
-async function migrateOldDataToUserAccount() {
-  try {
-    if (!state.uid) {
-      alert("ログインしていません。");
-      return;
-    }
-
-    // 1. ルート直下のカテゴリデータを取得
-    const catSnap = await db.ref('categories').once('value');
-    const categories = catSnap.val();
-
-    // 2. ルート直下のメモデータを取得
-    const artSnap = await db.ref('articles').once('value');
-    const articles = artSnap.val();
-
-    if (!categories && !articles) {
-      alert("インポートする過去のデータが見つかりませんでした。");
-      const banner = document.getElementById('migrationBanner');
-      if (banner) banner.remove();
-      return;
-    }
-
-    const updates = {};
-    
-    // 3. カテゴリデータをユーザー個室用にコピー
-    if (categories) {
-      Object.entries(categories).forEach(([catId, catData]) => {
-        updates[`users/${state.uid}/categories/${catId}`] = catData;
-      });
-    }
-
-    // 4. メモデータをユーザー個室用にコピー
-    if (articles) {
-      Object.entries(articles).forEach(([catId, artMap]) => {
-        if (artMap) {
-          Object.entries(artMap).forEach(([artId, artData]) => {
-            updates[`users/${state.uid}/articles/${catId}/${artId}`] = artData;
-          });
-        }
-      });
-    }
-
-    // 5. Firebaseに一括書き込み
-    updates[`users/${state.uid}/migrated`] = true;
-    await db.ref().update(updates);
-    
-    // localStorageにも保存
-    localStorage.setItem('hide_migration_banner', 'true');
-    
-    alert("🎉 過去のメモのインポート（引き継ぎ）が完全に成功しました！\n自動的に画面がリロードされます。");
-    window.location.reload();
-  } catch (err) {
-    console.error("Migration failed:", err);
-    alert("データのインポート中にエラーが発生しました: " + err.message);
-    const migrateBtn = document.getElementById('btnMigrate');
-    if (migrateBtn) {
-      migrateBtn.disabled = false;
-      migrateBtn.textContent = "インポートを実行する";
-    }
-  }
-}
 
 // エディタのプレーンなコンテンツが完全に空であるかを判定
 function isEditorEmpty(editor) {
@@ -1864,6 +1795,97 @@ function isEditorEmpty(editor) {
 }
 
 // ── ユーティリティ ───────────────────────────
+// 太陽マーク「☀︎」(U+2600 + U+FE0E) などの異体字セレクタおよびゼロ幅スペースを除去し、段落合体バグを防止する
+function cleanupInvalidUnicodeCharacters(editor) {
+  if (!editor) return;
+
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    removeInvalidUnicodeFromNode(editor);
+    return;
+  }
+
+  // 選択領域がエディタ内にない場合はそのまま置換
+  if (!editor.contains(sel.anchorNode)) {
+    removeInvalidUnicodeFromNode(editor);
+    return;
+  }
+
+  const caretPos = getCaretCharacterOffsetWithin(editor);
+  const removedCount = removeInvalidUnicodeFromNode(editor);
+
+  if (removedCount > 0) {
+    setCaretCharacterOffsetWithin(editor, Math.max(0, caretPos - removedCount));
+  }
+}
+
+function removeInvalidUnicodeFromNode(node) {
+  let count = 0;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent;
+    // \ufe0e, \ufe0f (異体字セレクタ) と \u200b (ゼロ幅スペース) を除去
+    const cleaned = text.replace(/[\ufe0e\ufe0f\u200b]/g, '');
+    if (cleaned !== text) {
+      count += (text.length - cleaned.length);
+      node.textContent = cleaned;
+    }
+  } else {
+    for (let i = 0; i < node.childNodes.length; i++) {
+      count += removeInvalidUnicodeFromNode(node.childNodes[i]);
+    }
+  }
+  return count;
+}
+
+function getCaretCharacterOffsetWithin(element) {
+  let caretOffset = 0;
+  const doc = element.ownerDocument || element.document;
+  const win = doc.defaultView || doc.parentWindow;
+  const sel = win.getSelection();
+  if (sel.rangeCount > 0) {
+    const range = win.getSelection().getRangeAt(0);
+    const preCaretRange = range.cloneRange();
+    preCaretRange.selectNodeContents(element);
+    preCaretRange.setEnd(range.startContainer, range.startOffset);
+    caretOffset = preCaretRange.toString().length;
+  }
+  return caretOffset;
+}
+
+function setCaretCharacterOffsetWithin(element, offset) {
+  let charIndex = 0;
+  const range = document.createRange();
+  range.setStart(element, 0);
+  range.collapse(true);
+  
+  const nodeQueue = [element];
+  let found = false;
+  
+  while (nodeQueue.length > 0 && !found) {
+    const node = nodeQueue.shift();
+    if (node.nodeType === Node.TEXT_NODE) {
+      const nextCharIndex = charIndex + node.length;
+      if (offset >= charIndex && offset <= nextCharIndex) {
+        range.setStart(node, offset - charIndex);
+        range.collapse(true);
+        found = true;
+      }
+      charIndex = nextCharIndex;
+    } else {
+      let i = node.childNodes.length;
+      while (i--) {
+        nodeQueue.unshift(node.childNodes[i]);
+      }
+    }
+  }
+  
+  if (found) {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
 function getVirtualLength(str) {
   let len = 0;
   for (let i = 0; i < (str || '').length; i++) {
@@ -2123,9 +2145,33 @@ function initializeNativeParagraphActions(editor) {
     }
   };
 
-  // フォーカスイン時にも解除
+  // フォーカスイン時にも解除 ＆ キーボード表示時のスクロールリセットタイマー（ヘッダー消失の完全防止）
+  let scrollLockTimer = null;
   editor.addEventListener('focusin', () => {
     cleanupAllSwipedParagraphs(editor);
+
+    const lockScroll = () => {
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+      const app = document.getElementById('app');
+      if (app) app.scrollTop = 0;
+    };
+    
+    // 即座に実行
+    lockScroll();
+    
+    // その後1.5秒間、50ms間隔で画面スクロールを強制リセット（ブラウザのキーボード表示による押し上げに対抗）
+    if (scrollLockTimer) clearInterval(scrollLockTimer);
+    let count = 0;
+    scrollLockTimer = setInterval(() => {
+      lockScroll();
+      count++;
+      if (count > 30) { // 30回 = 1.5秒
+        clearInterval(scrollLockTimer);
+        scrollLockTimer = null;
+      }
+    }, 50);
   });
 
   // フォーカスアウト（blur）時にも正規化を走らせて保存をトリガーする
