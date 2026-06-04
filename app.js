@@ -1461,7 +1461,6 @@ function renderEditor(container) {
       }, 500);
     };
   }
-  addSwipeBack(container, () => goBack());
 
   // 罫線・特殊区切り文字を自動クリーンアップ＆スペース整形する関数
   function cleanAndFormatBorderLines(txt) {
@@ -1688,12 +1687,6 @@ function renderEditor(container) {
     editor.oninput = () => {
       // 太陽マーク「☀︎」などのバグを誘発する見えない文字を除去
       cleanupInvalidUnicodeCharacters(editor);
-
-      // ユーザーが直接文字編集を行った場合、ペーストバッファをクリア（キャンセル）する
-      if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
-        window.globalCutParagraphs = null;
-        updatePasteButtonState();
-      }
 
       if (status) { status.textContent = '編集中…'; status.className = 'save-status editing'; }
       clearTimeout(saveTimer);
@@ -2084,6 +2077,9 @@ function initializeNativeParagraphActions(editor) {
   // 0.5. PC用画像削除ボタンのセットアップ
   setupImageDeleteButtons(editor);
 
+  // 0.6. スマホ・PC共用 画像長押しドラッグ＆ドロップ移動のセットアップ
+  setupImageDragAndDrop(editor);
+
   // 1. 各段落（<p>）にスワイプイベントをバインド
   bindParagraphSwipeEvents(editor);
 
@@ -2116,30 +2112,98 @@ function initializeNativeParagraphActions(editor) {
   editor.onkeydown = (e) => {
     cleanupAllSwipedParagraphs(editor);
 
-    // 太陽マーク「☀︎」(U+2600 + U+FE0E) 等の後ろでEnterキー改行した際の段落合体バグを解決するため、
-    // キャレット（カーソル）の直前にある異体字セレクタ(VS15/VS16)などの制御コードをEnter押下時に自動除去する
+    // ユーザーが物理的な文字入力（1文字のキー入力、Backspace、Delete等）を行った場合のみ、ペーストバッファをクリア（キャンセル）する
+    const isCharacterKey = e.key.length === 1 && !e.ctrlKey && !e.metaKey;
+    if (isCharacterKey || e.key === 'Backspace' || e.key === 'Delete') {
+      if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
+        window.globalCutParagraphs = null;
+        updatePasteButtonState();
+      }
+    }
+
+    // 太陽マーク等の記号に関係なく発生する、Enter改行時の段落統合バグを完全解決するため、
+    // ブラウザのデフォルトのEnter改行挙動を阻止し、自前で安全に段落を分割する
     if (e.key === 'Enter') {
+      e.preventDefault(); // デフォルトのEnter改行を阻止
+
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0) {
         const range = sel.getRangeAt(0);
-        const container = range.startContainer;
-        if (container.nodeType === Node.TEXT_NODE) {
-          const text = container.textContent;
-          const offset = range.startOffset;
-          if (offset > 0) {
-            const lastChar = text.charCodeAt(offset - 1);
-            if (lastChar === 0xFE0E || lastChar === 0xFE0F || lastChar === 0x200B) {
-              const cleanedText = text.substring(0, offset - 1) + text.substring(offset);
-              container.textContent = cleanedText;
-              
-              // キャレット位置を1文字前に戻して調整
-              const newRange = document.createRange();
-              newRange.setStart(container, offset - 1);
-              newRange.collapse(true);
-              sel.removeAllRanges();
-              sel.addRange(newRange);
-            }
+        let p = range.startContainer;
+
+        // エディタ直下の P タグ（段落）を特定
+        while (p && p.parentNode !== editor) {
+          p = p.parentNode;
+        }
+
+        if (p && p.tagName === 'P') {
+          // キャレットより前のコンテンツと後ろのコンテンツを分割抽出
+          const leftRange = document.createRange();
+          leftRange.setStart(p, 0);
+          leftRange.setEnd(range.startContainer, range.startOffset);
+          const leftFragment = leftRange.cloneContents();
+
+          const rightRange = document.createRange();
+          rightRange.setStart(range.startContainer, range.startOffset);
+          rightRange.setEnd(p, p.childNodes.length);
+          const rightFragment = rightRange.cloneContents();
+
+          // 新しい段落を生成
+          const leftP = document.createElement('p');
+          leftP.appendChild(leftFragment);
+          if (p.className) {
+            leftP.className = p.className;
           }
+
+          const rightP = document.createElement('p');
+          rightP.appendChild(rightFragment);
+          if (p.className) {
+            rightP.className = p.className;
+            rightP.classList.remove('para-selected'); // 選択状態はコピーしない
+            const chk = rightP.querySelector('.para-checkbox');
+            if (chk) chk.remove();
+            if (rightP.getAttribute('class') === '') rightP.removeAttribute('class');
+          }
+
+          // 空段落の場合はBRを補充
+          const isLeftEmpty = leftP.textContent.trim() === '' && !leftP.querySelector('img');
+          const isRightEmpty = rightP.textContent.trim() === '' && !rightP.querySelector('img');
+
+          if (isLeftEmpty) {
+            leftP.innerHTML = '<br>';
+          }
+          if (isRightEmpty) {
+            rightP.innerHTML = '<br>';
+          }
+
+          // DOMの置き換え
+          const parent = p.parentNode;
+          parent.insertBefore(leftP, p);
+          parent.insertBefore(rightP, p);
+          p.remove();
+
+          // キャレットを後半段落 (rightP) の先頭に配置
+          const newRange = document.createRange();
+          if (rightP.firstChild) {
+            if (rightP.firstChild.nodeType === Node.TEXT_NODE) {
+              newRange.setStart(rightP.firstChild, 0);
+            } else {
+              newRange.setStart(rightP, 0);
+            }
+          } else {
+            newRange.setStart(rightP, 0);
+          }
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+
+          // 正規化と自動クリーンアップの実行
+          cleanupInvalidUnicodeCharacters(editor);
+          normalizeEditorHTML(editor);
+          editor.dispatchEvent(new Event('input'));
+
+          // 改行した要素が見えるようにスクロール
+          rightP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       }
     }
@@ -2918,6 +2982,242 @@ function showToast(msg) {
     toast.classList.remove('visible');
     setTimeout(() => toast.remove(), 300);
   }, 2200);
+}
+
+// スマホ・PC共用 画像長押しドラッグ＆ドロップ移動の制御
+function setupImageDragAndDrop(editor) {
+  if (!editor) return;
+
+  let dragTarget = null; // ドラッグ対象の画像 (IMG)
+  let activeP = null;    // 画像が含まれている親段落 (P)
+  let ghostEl = null;    // ポップアップ（クローンプレビュー）要素
+  let insertLine = null; // 挿入箇所を示すライン
+  let insertPosition = null; // { targetP: HTMLElement, location: 'before' | 'after' }
+  let pressTimer = null;
+  let isDraggingImg = false;
+  let startX = 0, startY = 0;
+
+  // 挿入ラインインジケーターの生成
+  const showInsertLine = (targetP, location) => {
+    if (!insertLine) {
+      insertLine = document.createElement('div');
+      insertLine.style.height = '4px';
+      insertLine.style.background = '#f97316'; // 鮮やかなオレンジ
+      insertLine.style.boxShadow = '0 0 8px #f97316';
+      insertLine.style.borderRadius = '2px';
+      insertLine.style.position = 'absolute';
+      insertLine.style.left = '1.25rem';
+      insertLine.style.right = '1.25rem';
+      insertLine.style.zIndex = '1000';
+      insertLine.style.pointerEvents = 'none';
+      insertLine.style.transition = 'top-offset 0.1s ease';
+    }
+
+    const rect = targetP.getBoundingClientRect();
+    const editorRect = editor.getBoundingClientRect();
+    const scrollTop = editor.scrollTop;
+
+    // editorの相対位置を計算
+    let top = 0;
+    if (location === 'before') {
+      top = rect.top - editorRect.top + scrollTop - 2;
+    } else {
+      top = rect.bottom - editorRect.top + scrollTop - 2;
+    }
+
+    insertLine.style.top = `${top}px`;
+    if (!insertLine.parentNode) {
+      editor.appendChild(insertLine);
+    }
+
+    insertPosition = { targetP, location };
+  };
+
+  const removeInsertLine = () => {
+    if (insertLine && insertLine.parentNode) {
+      insertLine.remove();
+    }
+    insertPosition = null;
+  };
+
+  // タッチ・マウス操作の共有ハンドラ
+  const onStart = (e, clientX, clientY, target) => {
+    if (target.tagName !== 'IMG' || !target.classList.contains('inserted-img')) return;
+
+    dragTarget = target;
+    activeP = target.closest('p');
+    if (!activeP) return;
+
+    startX = clientX;
+    startY = clientY;
+
+    if (pressTimer) clearTimeout(pressTimer);
+    
+    // 350msの長押しでポップアップ起動
+    pressTimer = setTimeout(() => {
+      isDraggingImg = true;
+      
+      // キーボードを閉じる
+      if (document.activeElement === editor) {
+        editor.blur();
+      }
+
+      // クローン（ポップアッププレビュー）の生成
+      ghostEl = dragTarget.cloneNode(true);
+      ghostEl.style.position = 'fixed';
+      ghostEl.style.width = `${dragTarget.offsetWidth}px`;
+      ghostEl.style.height = `${dragTarget.offsetHeight}px`;
+      ghostEl.style.opacity = '0.85';
+      ghostEl.style.zIndex = '99999';
+      ghostEl.style.pointerEvents = 'none';
+      ghostEl.style.transform = 'scale(1.05)'; // 少し浮かび上がる効果
+      ghostEl.style.boxShadow = '0 15px 30px rgba(0,0,0,0.5)';
+      ghostEl.style.transition = 'transform 0.1s ease, box-shadow 0.1s ease';
+      document.body.appendChild(ghostEl);
+
+      // 元画像を半透明化
+      dragTarget.style.opacity = '0.35';
+
+      updateGhostPosition(clientX, clientY);
+      
+      // スワイプ戻りなどの他のタッチ動作を完全にブロックする
+      e.stopPropagation();
+    }, 350);
+  };
+
+  const updateGhostPosition = (clientX, clientY) => {
+    if (!ghostEl) return;
+    ghostEl.style.left = `${clientX - ghostEl.offsetWidth / 2}px`;
+    ghostEl.style.top = `${clientY - ghostEl.offsetHeight / 2}px`;
+  };
+
+  const onMove = (e, clientX, clientY) => {
+    // 指やマウスが動いた場合、長押し前ならキャンセル
+    if (!isDraggingImg) {
+      if (Math.abs(clientX - startX) > 10 || Math.abs(clientY - startY) > 10) {
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+      }
+      return;
+    }
+
+    e.preventDefault();
+    updateGhostPosition(clientX, clientY);
+
+    // 指の直下にある段落を検知
+    const elements = document.elementsFromPoint(clientX, clientY);
+    let targetP = null;
+    for (let el of elements) {
+      if (el.tagName === 'P' && editor.contains(el)) {
+        targetP = el;
+        break;
+      }
+    }
+
+    if (targetP) {
+      const rect = targetP.getBoundingClientRect();
+      const relativeY = clientY - rect.top;
+      // 段落の真ん中より上なら前に、下なら後ろに挿入ラインを表示
+      const location = relativeY < rect.height / 2 ? 'before' : 'after';
+      showInsertLine(targetP, location);
+    } else {
+      removeInsertLine();
+    }
+  };
+
+  const onEnd = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+
+    if (!isDraggingImg) {
+      dragTarget = null;
+      activeP = null;
+      return;
+    }
+
+    isDraggingImg = false;
+    
+    // 元画像の不透明度を復元
+    if (dragTarget) {
+      dragTarget.style.opacity = '';
+    }
+
+    // クローンとインジケーターの消去
+    if (ghostEl) {
+      ghostEl.remove();
+      ghostEl = null;
+    }
+
+    if (insertPosition && dragTarget && activeP) {
+      const { targetP, location } = insertPosition;
+      
+      // 画像段落ごと移動させる
+      if (activeP !== targetP) {
+        const parent = editor;
+        if (location === 'before') {
+          parent.insertBefore(activeP, targetP);
+        } else {
+          parent.insertBefore(activeP, targetP.nextSibling);
+        }
+        
+        // 保存と正規化
+        normalizeEditorHTML(editor);
+        editor.dispatchEvent(new Event('input'));
+        
+        showToast("画像を移動しました");
+      }
+    }
+
+    removeInsertLine();
+    dragTarget = null;
+    activeP = null;
+  };
+
+  // タッチイベントのバインド
+  editor.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+      onStart(e, e.touches[0].clientX, e.touches[0].clientY, e.target);
+    }
+  }, { passive: false });
+
+  editor.addEventListener('touchmove', e => {
+    if (isDraggingImg && e.touches.length === 1) {
+      onMove(e, e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  editor.addEventListener('touchend', onEnd);
+  editor.addEventListener('touchcancel', onEnd);
+
+  // マウスイベントのバインド
+  editor.addEventListener('mousedown', e => {
+    if (e.button === 0) { // 左クリックのみ
+      onStart(e, e.clientX, e.clientY, e.target);
+    }
+  });
+
+  const mouseMoveHandler = e => {
+    if (isDraggingImg) {
+      onMove(e, e.clientX, e.clientY);
+    }
+  };
+
+  const mouseUpHandler = () => {
+    onEnd();
+  };
+
+  document.addEventListener('mousemove', mouseMoveHandler);
+  document.addEventListener('mouseup', mouseUpHandler);
+
+  // エディタアンロード時のイベント解放用（listenersへ登録）
+  listeners.push(() => {
+    document.removeEventListener('mousemove', mouseMoveHandler);
+    document.removeEventListener('mouseup', mouseUpHandler);
+  });
 }
 
 // PC用の画像削除ボタン（ゴミ箱アイコン）の表示・制御
