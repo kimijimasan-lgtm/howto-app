@@ -84,7 +84,49 @@ const COLORS = [
 const DEFAULT_GRAD = COLORS[0].grad;
 
 // ── 状態管理 ─────────────────────────────────
-let state = { screen: 'home', categoryId: null, articleId: null, uid: null };
+let state = { screen: 'home', categoryId: null, articleId: null, uid: null, editorMode: 'view' };
+let activePasteMarkerP = null;
+let activePasteLocation = null;
+let isComposing = false;
+
+function removePasteMarker() {
+  const editor = document.getElementById('edContent');
+  if (editor) {
+    const existing = editor.querySelector('.paste-insert-line');
+    if (existing) existing.remove();
+  }
+  activePasteMarkerP = null;
+  activePasteLocation = null;
+}
+
+function showPasteMarker(targetP, location) {
+  removePasteMarker(); // 既存のものを消す
+  
+  activePasteMarkerP = targetP;
+  activePasteLocation = location;
+
+  const editor = document.getElementById('edContent');
+  if (!editor || !targetP) return;
+
+  const marker = document.createElement('div');
+  marker.className = 'paste-insert-line';
+  marker.style.pointerEvents = 'none';
+
+  // targetP に対する絶対的な位置を計算する
+  const rect = targetP.getBoundingClientRect();
+  const editorRect = editor.getBoundingClientRect();
+  const scrollTop = editor.scrollTop;
+
+  let top = 0;
+  if (location === 'before') {
+    top = rect.top - editorRect.top + scrollTop - 2;
+  } else {
+    top = rect.bottom - editorRect.top + scrollTop - 2;
+  }
+
+  marker.style.top = `${top}px`;
+  editor.appendChild(marker);
+}
 let listeners   = [];   // Firebase off() 用
 let saveTimer   = null;
 let catSortable = null;
@@ -1311,14 +1353,64 @@ function renderEditor(container) {
           </button>
         </div>
       </header>
-      <div id="edContent" class="editor-content" contenteditable="true"
+      <div id="edContent" class="editor-content" contenteditable="false"
         data-placeholder="1行目がタイトルになります
 
 2行目から本文を書いてください…"></div>
+      <button class="fab-mode-toggle mode-view" id="btnModeToggle" title="モード切り替え">✏️ 編集する</button>
       <input type="file" id="fileInput" style="display: none;" multiple />
     </div>`;
 
   document.getElementById('btnBack').onclick   = () => goBack();
+
+  // 閲覧／編集モード切り替えの制御
+  function setEditorMode(mode) {
+    state.editorMode = mode;
+    const editor = document.getElementById('edContent');
+    const toggleBtn = document.getElementById('btnModeToggle');
+    if (!editor || !toggleBtn) return;
+
+    if (mode === 'edit') {
+      editor.setAttribute('contenteditable', 'true');
+      toggleBtn.innerHTML = '👁️ 完了';
+      toggleBtn.className = 'fab-mode-toggle mode-edit';
+      editor.focus();
+      cleanupAllSwipedParagraphs(editor);
+    } else {
+      editor.setAttribute('contenteditable', 'false');
+      toggleBtn.innerHTML = '✏️ 編集する';
+      toggleBtn.className = 'fab-mode-toggle mode-view';
+      editor.blur();
+      // 挿入マーカーをリセット
+      const marker = editor.querySelector('.paste-insert-line');
+      if (marker) marker.remove();
+      normalizeEditorHTML(editor);
+      editor.dispatchEvent(new Event('input'));
+    }
+  }
+
+  const modeBtn = document.getElementById('btnModeToggle');
+  if (modeBtn) {
+    modeBtn.onclick = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      // ペーストバッファが存在する場合はモード切り替えをブロック
+      if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0 && state.editorMode === 'view') {
+        showToast("ペースト先を選択するか、ペーストを完了してください");
+        return;
+      }
+      if (state.editorMode === 'view') {
+        setEditorMode('edit');
+      } else {
+        setEditorMode('view');
+      }
+    };
+  }
+
+  // 初期化時はデフォルトで閲覧モードにする
+  setTimeout(() => {
+    setEditorMode('view');
+  }, 50);
   document.getElementById('btnDel').onclick    = deleteArticle;
 
   const fileInput = document.getElementById('fileInput');
@@ -1373,7 +1465,12 @@ function renderEditor(container) {
     pasteBtn.onclick = () => {
       const editor = document.getElementById('edContent');
       if (editor) {
-        pasteCutParagraphs(editor);
+        if (activePasteMarkerP) {
+          pasteCutParagraphs(editor, activePasteMarkerP, activePasteLocation);
+          removePasteMarker();
+        } else {
+          pasteCutParagraphs(editor);
+        }
       }
     };
     updatePasteButtonState();
@@ -1461,6 +1558,12 @@ function renderEditor(container) {
       }, 500);
     };
   }
+
+  addSwipeBack(container, () => {
+    if (state.editorMode === 'view') {
+      goBack();
+    }
+  });
 
   // 罫線・特殊区切り文字を自動クリーンアップ＆スペース整形する関数
   function cleanAndFormatBorderLines(txt) {
@@ -1685,6 +1788,7 @@ function renderEditor(container) {
 
     // 自動保存（1秒デバウンス）
     editor.oninput = () => {
+      if (isComposing) return;
       // 太陽マーク「☀︎」などのバグを誘発する見えない文字を除去
       cleanupInvalidUnicodeCharacters(editor);
 
@@ -2071,6 +2175,43 @@ function normalizeEditorHTML(editor) {
 function initializeNativeParagraphActions(editor) {
   if (!editor) return;
 
+  // IME入力中（変換中）の監視
+  editor.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+  editor.addEventListener('compositionend', () => {
+    isComposing = false;
+    // 確定時にクリーンアップと正規化を実行
+    cleanupInvalidUnicodeCharacters(editor);
+    normalizeEditorHTML(editor);
+    editor.dispatchEvent(new Event('input'));
+  });
+
+  // 閲覧モード中且つペーストバッファが存在する時のタップ（挿入マーカー）制御
+  editor.addEventListener('click', (e) => {
+    if (state.editorMode !== 'view' || !window.globalCutParagraphs || window.globalCutParagraphs.length === 0) {
+      return;
+    }
+
+    const p = e.target.closest('p');
+    if (p && editor.contains(p)) {
+      e.stopPropagation();
+      e.preventDefault();
+
+      const rect = p.getBoundingClientRect();
+      const relativeY = e.clientY - rect.top;
+      const location = (relativeY < rect.height / 2) ? 'before' : 'after';
+
+      if (activePasteMarkerP === p && activePasteLocation === location) {
+        removePasteMarker();
+      } else {
+        showPasteMarker(p, location);
+      }
+    } else {
+      removePasteMarker();
+    }
+  });
+
   // 0. 読み込み直後にエディタの段落構造を正規化する
   normalizeEditorHTML(editor);
 
@@ -2137,6 +2278,23 @@ function initializeNativeParagraphActions(editor) {
         }
 
         if (p && p.tagName === 'P') {
+          // ガード：もし range.startContainer が p の末尾（または末尾付近）を指しており、
+          // かつ次の段落 nextP が存在し、その nextP の先頭文字が特定の記号（⭕など）や文字である場合、
+          // キャレットが前の段落の末尾に誤吸着していると判定して補正する。
+          const nextP = p.nextSibling;
+          if (nextP && nextP.tagName === 'P') {
+            let isAtEnd = false;
+            if (range.startContainer.nodeType === Node.TEXT_NODE) {
+              isAtEnd = (range.startOffset === range.startContainer.length);
+            } else {
+              isAtEnd = (range.startOffset === p.childNodes.length);
+            }
+            if (isAtEnd && (nextP.textContent.startsWith('⭕') || nextP.textContent.startsWith('☀︎'))) {
+              p = nextP;
+              range.setStart(nextP, 0);
+              range.setEnd(nextP, 0);
+            }
+          }
           // キャレットより前のコンテンツと後ろのコンテンツを分割抽出
           const leftRange = document.createRange();
           leftRange.setStart(p, 0);
@@ -2532,6 +2690,95 @@ function showUndoToast(editor) {
   };
 }
 
+// カットした段落的貼り付け処理
+function pasteCutParagraphs(editor, targetP = null, location = 'after') {
+  if (!window.globalCutParagraphs || window.globalCutParagraphs.length === 0) return;
+  
+  let parentP = targetP;
+  let refLocation = location;
+  
+  if (!parentP) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      parentP = range.commonAncestorContainer;
+      if (parentP.nodeType === Node.TEXT_NODE) parentP = parentP.parentNode;
+      while (parentP && parentP.parentNode !== editor) {
+        parentP = parentP.parentNode;
+      }
+      refLocation = 'after';
+    }
+  }
+  
+  let inserted = false;
+  const insertedElements = [];
+  const parentNode = editor;
+  
+  if (parentP && parentP.tagName === 'P') {
+    let refNode = parentP;
+    window.globalCutParagraphs.forEach((html, idx) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const newEl = temp.firstElementChild;
+      if (!newEl) return;
+      
+      insertedElements.push(newEl);
+      
+      // 親段落のテキストが完全に空（または <br> のみ）かつ1枚目の場合、そこに直接置換する
+      if (idx === 0 && refNode === parentP && parentP.textContent.trim() === '' && !parentP.querySelector('img') && parentP.parentNode) {
+        parentP.parentNode.replaceChild(newEl, parentP);
+        refNode = newEl;
+      } else {
+        // 2枚目以降、またはコンテンツがある場合
+        const currentParent = refNode.parentNode || parentNode;
+        if (idx === 0 && refLocation === 'before') {
+          currentParent.insertBefore(newEl, refNode);
+        } else {
+          currentParent.insertBefore(newEl, refNode.nextSibling);
+        }
+        refNode = newEl;
+      }
+    });
+    inserted = true;
+  }
+  
+  if (!inserted) {
+    // ターゲットもキャレットもない場合は末尾に挿入
+    window.globalCutParagraphs.forEach(html => {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const newEl = temp.firstElementChild;
+      if (newEl) {
+        editor.appendChild(newEl);
+        insertedElements.push(newEl);
+      }
+    });
+  }
+  
+  // 挿入された段落にフラッシュ効果を与える
+  insertedElements.forEach(el => {
+    el.classList.add('para-paste-animating');
+  });
+  
+  // 挿入後にエディタを正規化して保存
+  normalizeEditorHTML(editor);
+  editor.dispatchEvent(new Event('input'));
+  
+  // 1秒後にフラッシュクラスを除去
+  setTimeout(() => {
+    insertedElements.forEach(el => {
+      el.classList.remove('para-paste-animating');
+      if (el.getAttribute('class') === '') el.removeAttribute('class');
+    });
+  }, 1000);
+  
+  // ペースト完了後にメモリをクリア
+  window.globalCutParagraphs = null;
+  updatePasteButtonState();
+  
+  showToast("段落を貼り付けました");
+}
+
 // ── PCからスマホへの同期用QRコードモーダル ──────────
 function showQRCodeModal() {
   const url = window.location.href;
@@ -2854,85 +3101,7 @@ function insertNodeAtCursor(node, editor) {
   }
 }
 
-// カットした段落の貼り付け処理
-function pasteCutParagraphs(editor) {
-  if (!window.globalCutParagraphs || window.globalCutParagraphs.length === 0) return;
-  
-  const sel = window.getSelection();
-  let inserted = false;
-  const insertedElements = [];
-  
-  if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
-    const range = sel.getRangeAt(0);
-    range.deleteContents();
-    
-    // カーソル位置の親段落を取得
-    let parentP = range.commonAncestorContainer;
-    if (parentP.nodeType === Node.TEXT_NODE) parentP = parentP.parentNode;
-    while (parentP && parentP.parentNode !== editor) {
-      parentP = parentP.parentNode;
-    }
-    
-    if (parentP && parentP.tagName === 'P') {
-      let refNode = parentP;
-      window.globalCutParagraphs.forEach(html => {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
-        const newEl = temp.firstElementChild;
-        if (!newEl) return;
-        
-        insertedElements.push(newEl);
-        
-        // 親段落のテキストが完全に空（または <br> のみ）の場合、そこに直接置換する
-        if (refNode === parentP && parentP.textContent.trim() === '' && !parentP.querySelector('img')) {
-          parentP.parentNode.replaceChild(newEl, parentP);
-          refNode = newEl;
-        } else {
-          // コンテンツがある場合は直後に挿入
-          parentP.parentNode.insertBefore(newEl, refNode.nextSibling);
-          refNode = newEl;
-        }
-      });
-      inserted = true;
-    }
-  }
-  
-  if (!inserted) {
-    // カーソルがないか、エディタ外の場合は末尾に挿入
-    window.globalCutParagraphs.forEach(html => {
-      const temp = document.createElement('div');
-      temp.innerHTML = html;
-      const newEl = temp.firstElementChild;
-      if (newEl) {
-        editor.appendChild(newEl);
-        insertedElements.push(newEl);
-      }
-    });
-  }
-  
-  // 挿入された段落にフラッシュ効果を与える
-  insertedElements.forEach(el => {
-    el.classList.add('para-paste-animating');
-  });
-  
-  // 挿入後にエディタを正規化して保存
-  normalizeEditorHTML(editor);
-  editor.dispatchEvent(new Event('input'));
-  
-  // 1秒後にフラッシュクラスを除去
-  setTimeout(() => {
-    insertedElements.forEach(el => {
-      el.classList.remove('para-paste-animating');
-      if (el.getAttribute('class') === '') el.removeAttribute('class');
-    });
-  }, 1000);
-  
-  // ペースト完了後にメモリをクリア
-  window.globalCutParagraphs = null;
-  updatePasteButtonState();
-  
-  showToast("段落を貼り付けました");
-}
+
 
 // クリップボードのペーストボタンの表示制御
 function updatePasteButtonState() {
@@ -3040,8 +3209,9 @@ function setupImageDragAndDrop(editor) {
     insertPosition = null;
   };
 
-  // タッチ・マウス操作の共有ハンドラ
+  // タッチ・マウス操作 of 共有ハンドラ
   const onStart = (e, clientX, clientY, target) => {
+    if (state.editorMode === 'edit') return;
     if (target.tagName !== 'IMG' || !target.classList.contains('inserted-img')) return;
 
     dragTarget = target;

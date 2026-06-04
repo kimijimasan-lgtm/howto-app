@@ -1279,3 +1279,70 @@ body {
 .img-delete-btn:active {
   transform: scale(0.9) !important;
 }
+
+/* 🔘 モード切り替え フローティング・カプセルボタン (FAB) */
+.fab-mode-toggle {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.8rem 1.4rem;
+  border-radius: 30px;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 
+              0 8px 10px -6px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transform: translateY(0) scale(1);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.fab-mode-toggle:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.5), 
+              0 10px 15px -6px rgba(0, 0, 0, 0.5);
+}
+.fab-mode-toggle:active {
+  transform: translateY(1px) scale(0.97);
+}
+
+/* 閲覧モード中 (デフォルト) */
+.fab-mode-toggle.mode-view {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.95), rgba(234, 88, 12, 0.95));
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+/* 編集モード中 */
+.fab-mode-toggle.mode-edit {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* ペースト挿入位置インジケーター（境界マーカー）の最前面配置 */
+.paste-insert-line {
+  height: 4px;
+  background: #f97316 !important;
+  box-shadow: 0 0 10px #f97316 !important;
+  border-radius: 2px;
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  z-index: 9999999 !important; /* 最前面 */
+  pointer-events: none;
+  animation: markerPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes markerPulse {
+  0%, 100% { opacity: 0.5; filter: brightness(0.8); }
+  50% { opacity: 1; filter: brightness(1.3); }
+}
