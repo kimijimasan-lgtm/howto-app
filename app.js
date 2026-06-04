@@ -496,11 +496,17 @@ function renderHome(container) {
 
       // もし直前に訪れていたカテゴリIDであれば、戻りフラッシュ効果クラスを付与
       if (cat.id === window.justVisitedCategoryId) {
-        card.classList.add('just-visited-flash');
+        const targetId = cat.id;
         setTimeout(() => {
-          card.classList.remove('just-visited-flash');
-          window.justVisitedCategoryId = null; // フラッシュ完了後にクリア
-        }, 1600);
+          const targetCard = grid.querySelector(`[data-id="${targetId}"]`);
+          if (targetCard) {
+            targetCard.classList.add('just-visited-flash');
+            setTimeout(() => {
+              targetCard.classList.remove('just-visited-flash');
+            }, 1000);
+          }
+        }, 350); // 画面フェードイン（180ms遅延+200msトランジション）の完了に合わせて発火
+        window.justVisitedCategoryId = null; // 即座にクリアして多重発火防止
       }
 
       // 全角・半角の文字数をスマートに換算し、CSS変数としてセット（CSS側でレスポンシブ自動調整）
@@ -630,6 +636,7 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
 //  SCREEN B: カテゴリ内記事一覧
 // ============================================
 function renderCategory(container) {
+  let isAutoCreating = false;
   container.innerHTML = `
     <div class="screen-category">
       <header class="app-header">
@@ -686,14 +693,28 @@ function renderCategory(container) {
     const data = snap.val();
 
     if (!data || Object.keys(data).length === 0) {
-      // メモが1枚もない場合、自動的に空の新規文書をバックグラウンドで作成
-      const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
-      newRef.set({
-        content: '<p><br></p>', // 空の段落を初期設定
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        order: Date.now()
-      }).catch(err => console.error(err));
+      const autoCreateKey = `${state.uid}_${state.categoryId}`;
+      window.autoCreateFlags = window.autoCreateFlags || {};
+      
+      if (!window.autoCreateFlags[autoCreateKey]) {
+        window.autoCreateFlags[autoCreateKey] = true;
+        // メモが1枚もない場合、自動的に空の新規文書をバックグラウンドで作成
+        const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
+        newRef.set({
+          content: '<p><br></p>', // 空の段落を初期設定
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          order: Date.now()
+        }).catch(err => {
+          console.error("自動メモ作成エラー:", err);
+          // 失敗した場合のみ、5秒後に再試行を許可するようフラグをクリア
+          setTimeout(() => {
+            if (window.autoCreateFlags) {
+              delete window.autoCreateFlags[autoCreateKey];
+            }
+          }, 5000);
+        });
+      }
       
       // 生成されるまで一時的にローディング表示にする（空警告バナーは出さない）
       list.innerHTML = '<div class="loading-spinner">自動作成中…</div>';
@@ -1982,6 +2003,9 @@ function initializeNativeParagraphActions(editor) {
   // 0. 読み込み直後にエディタの段落構造を正規化する
   normalizeEditorHTML(editor);
 
+  // 0.5. PC用画像削除ボタンのセットアップ
+  setupImageDeleteButtons(editor);
+
   // 1. 各段落（<p>）にスワイプイベントをバインド
   bindParagraphSwipeEvents(editor);
 
@@ -2742,3 +2766,89 @@ function showToast(msg) {
     setTimeout(() => toast.remove(), 300);
   }, 2200);
 }
+
+// PC用の画像削除ボタン（ゴミ箱アイコン）の表示・制御
+function setupImageDeleteButtons(editor) {
+  if (!editor) return;
+  let activeDeleteBtn = null;
+  let activeImg = null;
+
+  const removeDeleteBtn = () => {
+    if (activeDeleteBtn) {
+      activeDeleteBtn.remove();
+      activeDeleteBtn = null;
+      activeImg = null;
+    }
+  };
+
+  // 画像の上にホバーしたときに削除ボタンを表示
+  editor.addEventListener('mouseover', e => {
+    const img = e.target;
+    if (img.tagName === 'IMG' && img.classList.contains('inserted-img')) {
+      if (activeImg === img) return;
+      removeDeleteBtn();
+      activeImg = img;
+
+      const btn = document.createElement('button');
+      btn.className = 'img-delete-btn';
+      btn.innerHTML = '🗑️';
+      btn.title = '画像を削除';
+      btn.contentEditable = 'false';
+      btn.style.position = 'absolute';
+
+      // エディタを基準にした絶対座標を計算
+      const rect = img.getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const top = rect.top - editorRect.top + editor.scrollTop;
+      const left = rect.left - editorRect.left + editor.scrollLeft;
+
+      btn.style.top = `${top + 8}px`;
+      btn.style.left = `${left + 8}px`;
+      btn.style.zIndex = '150';
+
+      btn.onclick = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (confirm('この画像を削除しますか？')) {
+          let parent = img.parentNode;
+          if (parent && parent.tagName === 'P') {
+            parent.remove();
+          } else {
+            img.remove();
+          }
+          removeDeleteBtn();
+          normalizeEditorHTML(editor);
+          editor.dispatchEvent(new Event('input'));
+        }
+      };
+
+      editor.appendChild(btn);
+      activeDeleteBtn = btn;
+    } else {
+      // ホバー対象が画像以外で、ボタン自体でもない場合
+      if (activeDeleteBtn && (e.target === activeDeleteBtn || activeDeleteBtn.contains(e.target))) {
+        return;
+      }
+      removeDeleteBtn();
+    }
+  });
+
+  // エディタからマウスが外れたら削除ボタンを消す
+  editor.addEventListener('mouseleave', e => {
+    setTimeout(() => {
+      if (activeDeleteBtn) {
+        const isHoverBtn = activeDeleteBtn.matches(':hover');
+        const isHoverImg = activeImg && activeImg.matches(':hover');
+        if (!isHoverBtn && !isHoverImg) {
+          removeDeleteBtn();
+        }
+      }
+    }, 150);
+  });
+
+  // スクロールや入力、フォーカスが外れたら位置がズレるので消去
+  editor.addEventListener('scroll', removeDeleteBtn, { passive: true });
+  editor.addEventListener('input', removeDeleteBtn);
+  editor.addEventListener('blur', () => setTimeout(removeDeleteBtn, 200));
+}
+

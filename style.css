@@ -169,14 +169,14 @@ body {
   flex-direction: column;
   height: 100dvh;
   position: relative; /* 子要素の絶対配置の基準にする */
+  overflow: hidden;
 }
 /* エディタ画面のヘッダーを絶対固定 */
 .screen-editor .editor-header {
-  position: absolute;
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   width: 100%;
+  flex-shrink: 0;
   z-index: 100;
 }
 
@@ -489,7 +489,7 @@ body {
   font-family: var(--font);
   font-size: 1rem;
   line-height: 1.85;
-  padding: calc(var(--header-h) + 1.25rem) 1.25rem 1.25rem 1.25rem; /* 上部パディングをヘッダー高さ分空ける */
+  padding: 1.25rem; /* ヘッダーがstickyになったため上部パディングを通常に戻す */
   outline: none;
   scrollbar-width: thin;
   scrollbar-color: var(--text-muted) transparent;
@@ -1205,33 +1205,76 @@ body {
   animation: pasteFlash 1.0s ease-in-out forwards !important;
 }
 
-/* カテゴリカードに戻ってきたときのフラッシュ */
-@keyframes categoryFlash {
-  0% { filter: brightness(1); transform: perspective(800px) rotateX(6deg) translateY(-2px) scale(1); box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.5); }
-  25% { filter: brightness(1.5); transform: perspective(800px) rotateX(6deg) translateY(-6px) scale(1.03); box-shadow: 0 8px 0 var(--accent), 0 12px 32px rgba(249, 115, 22, 0.6); }
-  50% { filter: brightness(1); transform: perspective(800px) rotateX(6deg) translateY(-2px) scale(1); box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.5); }
-  75% { filter: brightness(1.5); transform: perspective(800px) rotateX(6deg) translateY(-6px) scale(1.03); box-shadow: 0 8px 0 var(--accent), 0 12px 32px rgba(249, 115, 22, 0.6); }
-  100% { filter: brightness(1); transform: perspective(800px) rotateX(6deg) translateY(-2px) scale(1); box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.5); }
-}
-.category-card.just-visited-flash {
-  animation: categoryFlash 1.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+/* カテゴリカードのフラッシュ明滅効果 (白い光が2回ピカピカッと点滅) */
+.category-card {
+  position: relative; /* ::afterを重ねるため */
 }
 
-/* カテゴリドラッグ開始・終了時のフラッシュ */
-@keyframes dragStartFlash {
-  0% { filter: brightness(1); transform: scale(1); }
-  100% { filter: brightness(1.3); transform: scale(1.05); }
+/* 戻ってきたとき ＆ ドラッグ終了着地時のダブルフラッシュ */
+.category-card.just-visited-flash::after,
+.category-card.category-drag-end-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #ffffff; /* 白い光 */
+  border-radius: inherit;
+  opacity: 0;
+  z-index: 100;
+  pointer-events: none;
+  animation: whiteDoubleFlash 0.8s ease-out forwards;
 }
+
+/* ドラッグ開始持ち上げ時のシングルフラッシュ */
 .category-card.category-drag-start-flash {
-  animation: dragStartFlash 0.2s ease-out forwards;
-  z-index: 9999;
+  opacity: 1 !important; /* ドラッグ開始時、半透明にならずにフラッシュを綺麗に見せる */
+}
+.category-card.category-drag-start-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  border-radius: inherit;
+  opacity: 0;
+  z-index: 100;
+  pointer-events: none;
+  animation: whiteSingleFlash 0.3s ease-out forwards;
 }
 
-@keyframes dragEndFlash {
-  0% { filter: brightness(1.4); box-shadow: 0 0 20px var(--accent); }
-  50% { filter: brightness(0.8); }
-  100% { filter: brightness(1); box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.5); }
+@keyframes whiteDoubleFlash {
+  0% { opacity: 0.8; }
+  35% { opacity: 0; }
+  55% { opacity: 0.6; }
+  100% { opacity: 0; }
 }
-.category-card.category-drag-end-flash {
-  animation: dragEndFlash 0.6s ease-out forwards;
+
+@keyframes whiteSingleFlash {
+  0% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+/* PC用 画像削除ゴミ箱ボタン */
+.img-delete-btn {
+  background: rgba(239, 68, 68, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  transition: transform 0.15s, background-color 0.15s !important;
+  animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+.img-delete-btn:hover {
+  background: #dc2626 !important;
+  transform: scale(1.1) !important;
+}
+.img-delete-btn:active {
+  transform: scale(0.9) !important;
 }
