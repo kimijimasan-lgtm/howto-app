@@ -1294,7 +1294,7 @@ function renderEditor(container) {
         data-placeholder="1行目がタイトルになります
 
 2行目から本文を書いてください…"></div>
-      <div class="mode-toggle-bar mode-view" id="btnModeToggle"><span class="toggle-line1">左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span></div>
+      <div class="mode-toggle-bar mode-view" id="btnModeToggle"><span class="toggle-line1">【閲覧モード】左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span></div>
       <input type="file" id="fileInput" style="display: none;" multiple />
     </div>`;
 
@@ -1308,16 +1308,17 @@ function renderEditor(container) {
     if (!editor || !toggleBar) return;
 
     if (mode === 'edit') {
-      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ有効化
+      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ有効化（focusは呼ばない）
       toggleBar.className = 'mode-toggle-bar mode-edit';
-      toggleBar.innerHTML = '<span class="toggle-line1">文字入力、範囲指定、コピペが使えます。</span><span class="toggle-line2">左右フリップと各種アイコンが使えません。</span>';
+      toggleBar.innerHTML = '<span class="toggle-line1">【編集モード】文字入力、範囲指定、コピペが使えます。</span><span class="toggle-line2">左右フリップと各種アイコンが使えません。</span>';
       editor.setAttribute('contenteditable', 'true');
-      editor.focus();
+      // editor.focus() を呼ばないことで、モード切替直後にキーボードや編集マークが表示されないようにする。
+      // ユーザーが実際にテキストをタップした時に初めてフォーカスが当たる。
       cleanupAllSwipedParagraphs(editor);
     } else {
       // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ無効化
       toggleBar.className = 'mode-toggle-bar mode-view';
-      toggleBar.innerHTML = '<span class="toggle-line1">左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span>';
+      toggleBar.innerHTML = '<span class="toggle-line1">【閲覧モード】左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span>';
       editor.setAttribute('contenteditable', 'false');
       editor.blur();
       // 挿入マーカーをリセット
@@ -2311,8 +2312,11 @@ function initializeNativeParagraphActions(editor) {
           sel.removeAllRanges();
           sel.addRange(newRange);
 
-          // 正規化の実行（クリーンアップはDOMを壊すため保存時のみ実行）
-          normalizeEditorHTML(editor);
+          // ✅ 正規化(normalizeEditorHTML)はEnter直後に呼ばない！
+          // normalizeEditorHTMLがeditor.innerHTMLを再設定するとDOMが全再構築され、
+          // 上記で設定したカーソル位置（sel.addRange）が完全に破壊される。
+          // これが5回にわたる「Enter後にカーソルが前の段落に飛ぶ」バグの真の根本原因。
+          // 段落分割は上記のカスタムロジックで正しい<p>構造を生成済みなので、直後の正規化は不要。
           editor.dispatchEvent(new Event('input'));
 
           // 改行した要素が見えるようにスクロール
