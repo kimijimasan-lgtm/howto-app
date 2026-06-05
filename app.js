@@ -88,6 +88,8 @@ let state = { screen: 'home', categoryId: null, articleId: null, uid: null, edit
 let activePasteMarkerP = null;
 let activePasteLocation = null;
 let isComposing = false;
+let toastQueue = [];
+let isToastShowing = false;
 
 function removePasteMarker() {
   const editor = document.getElementById('edContent');
@@ -111,6 +113,25 @@ function showPasteMarker(targetP, location) {
   const marker = document.createElement('div');
   marker.className = 'paste-insert-line';
   marker.style.pointerEvents = 'none';
+
+  // ガイドメッセージを追加
+  const guide = document.createElement('div');
+  guide.className = 'paste-guide-message';
+  guide.textContent = 'ラインの下に貼り付け位置をタップしてください';
+  guide.style.position = 'absolute';
+  guide.style.top = '8px'; // ラインの少し下
+  guide.style.left = '50%';
+  guide.style.transform = 'translateX(-50%)';
+  guide.style.background = 'rgba(249, 115, 22, 0.9)'; // オレンジ背景
+  guide.style.color = '#ffffff';
+  guide.style.padding = '0.35rem 0.75rem';
+  guide.style.borderRadius = '6px';
+  guide.style.fontSize = '0.75rem';
+  guide.style.fontWeight = 'bold';
+  guide.style.whiteSpace = 'nowrap';
+  guide.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+  guide.style.zIndex = '9999999';
+  marker.appendChild(guide);
 
   // targetP に対する絶対的な位置を計算する
   const rect = targetP.getBoundingClientRect();
@@ -1005,101 +1026,6 @@ async function deleteArticleById(artId, catId) {
   }
 }
 
-// ── 一括エクスポート選択モーダルの表示 ────────────────
-function showExportAllModal(catId) {
-  // そのカテゴリ内の全メモを順序順（画面の表示順と同じ降順ソート）で取得する
-  db.ref(`users/${state.uid}/articles/${catId}`).once('value', snap => {
-    const data = snap.val();
-    if (!data) {
-      alert('エクスポートするメモがありません。');
-      return;
-    }
-
-    const articles = Object.entries(data)
-      .map(([id, v]) => ({ id, ...v }))
-      .sort((a, b) => {
-        if (a.order !== undefined && b.order !== undefined) return b.order - a.order; // 新しい（order大）順＝表示と同じ
-        return (b.updatedAt || 0) - (a.updatedAt || 0);
-      });
-
-    if (articles.length === 0) {
-      alert('エクスポートするメモがありません。');
-      return;
-    }
-
-    const overlay = document.createElement('div');
-    overlay.className = 'move-modal-overlay';
-    overlay.innerHTML = `
-      <div class="move-modal" style="padding: 1.5rem; max-height: 80vh;">
-        <div class="move-modal-header" style="padding: 0 0 1rem 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border);">
-          <span style="font-size: 1.1rem; font-weight: 700;">全メモを一括エクスポート</span>
-          <button class="move-modal-close" id="exportCloseBtn">キャンセル</button>
-        </div>
-        <ul class="move-cat-list" style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.5rem 0;">
-          <li class="btn-export-option" data-type="copy" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
-            <span style="font-size: 1.5rem;">📋</span>
-            <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">全データ連結コピー</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを連結してクリップボードにコピーします</div>
-            </div>
-          </li>
-          <li class="btn-export-option" data-type="text" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
-            <span style="font-size: 1.5rem;">📝</span>
-            <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">テキスト連結（.txt一括出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを連結したテキストファイルを保存します</div>
-            </div>
-          </li>
-          <li class="btn-export-option" data-type="md" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
-            <span style="font-size: 1.5rem;">✍️</span>
-            <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Markdown連結（.md一括出力）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを統合したマークダウンファイルを保存します</div>
-            </div>
-          </li>
-          <li class="btn-export-option" data-type="pdf" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
-            <span style="font-size: 1.5rem;">📄</span>
-            <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">PDF形式（一括保存）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">全メモを改ページ付きで美しくPDFファイルとして保存します</div>
-            </div>
-          </li>
-          <li class="btn-export-option" data-type="html" style="padding: 1rem; border-radius: 12px; background: rgba(255,255,255,0.04); cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: background 0.2s;">
-            <span style="font-size: 1.5rem;">🌐</span>
-            <div>
-              <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">HTML形式（画像・レイアウト維持一括保存）</div>
-              <div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">画像やスタイルを100%維持して、1つの美しいHTMLファイルとして保存します</div>
-            </div>
-          </li>
-        </ul>
-      </div>`;
-    document.body.appendChild(overlay);
-
-    overlay.querySelector('#exportCloseBtn').onclick = () => overlay.remove();
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-
-    overlay.querySelectorAll('.btn-export-option').forEach(btn => {
-      btn.onclick = () => {
-        const type = btn.dataset.type;
-        
-        let typeName = '';
-        if (type === 'copy') typeName = '全データ連結コピー';
-        if (type === 'text') typeName = 'テキスト連結（.txt一括出力）';
-        if (type === 'md') typeName = 'Markdown連結（.md一括出力）';
-        if (type === 'pdf') typeName = 'PDF形式（一括保存）';
-        if (type === 'html') typeName = 'HTML形式（画像・レイアウト維持一括保存）';
-
-        if (confirm(`このカテゴリ内のすべてのメモを「${typeName}」でエクスポートします。よろしいですか？`)) {
-          handleExportAllAction(type, articles);
-          overlay.remove();
-        }
-      };
-      btn.onmouseenter = () => btn.style.background = 'rgba(255,255,255,0.08)';
-      btn.onmouseleave = () => btn.style.background = 'rgba(255,255,255,0.04)';
-    });
-  });
-}
-
 // ── 実際の一括エクスポート処理の実行 ──────────────────
 function handleExportAllAction(type, articles) {
   const catTitleEl = document.getElementById('catTitle');
@@ -1275,7 +1201,6 @@ function handleExportAllAction(type, articles) {
   }
 }
 
-
 function createArticle(noTransition = false) {
   // 通信を待たずにクライアント側で即座に一意なID（キー）を生成（遅延ゼロ）
   const newRef = db.ref(`users/${state.uid}/articles/${state.categoryId}`).push();
@@ -1283,7 +1208,10 @@ function createArticle(noTransition = false) {
 
   // バックグラウンドで初期データを保存（画面遷移を待たせない）
   newRef.set({
-    content: '', createdAt: Date.now(), updatedAt: Date.now(), order: Date.now()
+    content: '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    order: Date.now()
   }).catch(err => console.error(err));
 
   if (noTransition) {
@@ -1902,17 +1830,35 @@ function cleanupInvalidUnicodeCharacters(editor) {
     return;
   }
 
-  // 選択領域がエディタ内にない場合はそのまま置換
-  if (!editor.contains(sel.anchorNode)) {
+  let anchor = sel.anchorNode;
+  if (!anchor || !editor.contains(anchor)) {
     removeInvalidUnicodeFromNode(editor);
     return;
   }
 
-  const caretPos = getCaretCharacterOffsetWithin(editor);
-  const removedCount = removeInvalidUnicodeFromNode(editor);
+  // キャレットのある親段落 p を特定
+  let targetP = anchor;
+  if (targetP.nodeType === Node.TEXT_NODE) {
+    targetP = targetP.parentNode;
+  }
+  while (targetP && targetP.parentNode !== editor) {
+    targetP = targetP.parentNode;
+  }
 
-  if (removedCount > 0) {
-    setCaretCharacterOffsetWithin(editor, Math.max(0, caretPos - removedCount));
+  if (targetP && targetP.tagName === 'P') {
+    const caretPos = getCaretCharacterOffsetWithin(targetP);
+    const removedCount = removeInvalidUnicodeFromNode(targetP);
+
+    if (removedCount > 0) {
+      setCaretCharacterOffsetWithin(targetP, Math.max(0, caretPos - removedCount));
+    }
+  } else {
+    // 予期しない構造の場合のフォールバック
+    const caretPos = getCaretCharacterOffsetWithin(editor);
+    const removedCount = removeInvalidUnicodeFromNode(editor);
+    if (removedCount > 0) {
+      setCaretCharacterOffsetWithin(editor, Math.max(0, caretPos - removedCount));
+    }
   }
 }
 
@@ -2543,6 +2489,7 @@ function bindParagraphSwipeEvents(editor) {
 
   let txStart = 0, tyStart = 0;
   const touchStartHandler = e => {
+    if (state.editorMode === 'edit') return; // 編集モード時はスワイプ無効
     txStart = e.touches[0].clientX;
     tyStart = e.touches[0].clientY;
 
@@ -2561,6 +2508,8 @@ function bindParagraphSwipeEvents(editor) {
     }
   };
   const touchEndHandler = e => {
+    if (state.editorMode === 'edit') return; // 編集モード時はスワイプ無効
+    
     // 文字選択（範囲選択）中はフリップ動作をキャンセル
     if (window.getSelection().toString() !== '') return;
 
@@ -2568,27 +2517,26 @@ function bindParagraphSwipeEvents(editor) {
     const dy = Math.abs(e.changedTouches[0].clientY - tyStart);
 
     if (Math.abs(dx) > 50 && dy < 40) {
-      // タップされた位置からエディタ直下のブロック要素（段落）を特定
-      let p = e.target;
-      while (p && p.parentNode !== editor) {
-        p = p.parentNode;
-      }
-      if (!p || p === editor) return;
-
-      // もし p が P タグでなかった場合、安全のために P タグでラップする（画像やむき出しテキストの安全対策）
-      if (p.tagName !== 'P') {
-        const wrapper = document.createElement('p');
-        p.parentNode.insertBefore(wrapper, p);
-        wrapper.appendChild(p);
-        p = wrapper;
-      }
-
       if (dx < 0) {
+        // タップされた位置からエディタ直下のブロック要素（段落）を特定
+        let p = e.target;
+        while (p && p.parentNode !== editor) {
+          p = p.parentNode;
+        }
+        if (!p || p === editor) return;
+
+        // もし p が P タグでなかった場合、安全のために P タグでラップする（画像やむき出しテキストの安全対策）
+        if (p.tagName !== 'P') {
+          const wrapper = document.createElement('p');
+          p.parentNode.insertBefore(wrapper, p);
+          wrapper.appendChild(p);
+          p = wrapper;
+        }
+
         toggleParagraphSelect(p, editor);
       } else {
-        if (p.classList.contains('para-selected')) {
-          toggleParagraphSelect(p, editor);
-        }
+        // 右フリップで前の画面に戻る
+        goBack();
       }
     }
   };
@@ -3106,13 +3054,16 @@ function insertNodeAtCursor(node, editor) {
 // クリップボードのペーストボタンの表示制御
 function updatePasteButtonState() {
   const pasteBtn = document.getElementById('btnPaste');
+  const cancelBtn = document.getElementById('btnPasteCancel');
   if (!pasteBtn) return;
   if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0) {
     pasteBtn.style.display = 'flex';
     pasteBtn.classList.add('pulse-delete-active');
+    if (cancelBtn) cancelBtn.style.display = 'flex';
   } else {
     pasteBtn.style.display = 'none';
     pasteBtn.classList.remove('pulse-delete-active');
+    if (cancelBtn) cancelBtn.style.display = 'none';
   }
 }
 
@@ -3133,10 +3084,17 @@ function showLightbox(src) {
   };
 }
 
-// トーストメッセージ表示
+// トーストメッセージをキュー管理で順次表示する関数
 function showToast(msg) {
-  const oldToast = document.querySelector('.toast-msg');
-  if (oldToast) oldToast.remove();
+  toastQueue.push(msg);
+  processToastQueue();
+}
+
+function processToastQueue() {
+  if (isToastShowing || toastQueue.length === 0) return;
+  
+  isToastShowing = true;
+  const msg = toastQueue.shift();
   
   const toast = document.createElement('div');
   toast.className = 'toast-msg';
@@ -3145,11 +3103,15 @@ function showToast(msg) {
   
   setTimeout(() => {
     toast.classList.add('visible');
-  }, 10);
+  }, 50);
   
   setTimeout(() => {
     toast.classList.remove('visible');
-    setTimeout(() => toast.remove(), 300);
+    setTimeout(() => {
+      toast.remove();
+      isToastShowing = false;
+      processToastQueue();
+    }, 300);
   }, 2200);
 }
 
@@ -3211,8 +3173,13 @@ function setupImageDragAndDrop(editor) {
 
   // タッチ・マウス操作 of 共有ハンドラ
   const onStart = (e, clientX, clientY, target) => {
-    if (state.editorMode === 'edit') return;
     if (target.tagName !== 'IMG' || !target.classList.contains('inserted-img')) return;
+
+    // 長押し保存メニューや標準ドラッグをキャンセルして競合を防止
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+    e.stopPropagation();
 
     dragTarget = target;
     activeP = target.closest('p');
@@ -3249,9 +3216,6 @@ function setupImageDragAndDrop(editor) {
       dragTarget.style.opacity = '0.35';
 
       updateGhostPosition(clientX, clientY);
-      
-      // スワイプ戻りなどの他のタッチ動作を完全にブロックする
-      e.stopPropagation();
     }, 350);
   };
 
@@ -3298,15 +3262,23 @@ function setupImageDragAndDrop(editor) {
   };
 
   const onEnd = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-
     if (!isDraggingImg) {
+      // pressTimer が残っている（＝移動距離が小さく、350ms以内に指が離れた）場合のみタップとみなす
+      if (pressTimer && dragTarget) {
+        showLightbox(dragTarget.src);
+      }
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
       dragTarget = null;
       activeP = null;
       return;
+    }
+
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
     }
 
     isDraggingImg = false;

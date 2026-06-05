@@ -1281,11 +1281,19 @@ body {
 }
 
 /* 🔘 モード切り替え フローティング・カプセルボタン (FAB) */
-.fab-mode-toggle {
+/* 🔘 モード切り替え フローティング・コンテナ */
+.fab-mode-container {
   position: fixed;
   bottom: 24px;
   right: 24px;
   z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fab-mode-toggle {
+  position: static;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1324,8 +1332,43 @@ body {
 
 /* 編集モード中 */
 .fab-mode-toggle.mode-edit {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(37, 99, 235, 0.95));
+  border-color: rgba(59, 130, 246, 0.3);
+  cursor: default;
+  pointer-events: none; /* クリック操作を無効化 */
+}
+
+/* 新規「完了」ボタン */
+.fab-mode-btn-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.8rem 1.4rem;
+  border-radius: 30px;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #ffffff;
+  border: 1px solid rgba(16, 185, 129, 0.3);
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
-  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 
+              0 8px 10px -6px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transform: translateY(0) scale(1);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.fab-mode-btn-done:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.5), 
+              0 10px 15px -6px rgba(0, 0, 0, 0.5);
+}
+.fab-mode-btn-done:active {
+  transform: translateY(1px) scale(0.97);
 }
 
 /* ペースト挿入位置インジケーター（境界マーカー）の最前面配置 */
