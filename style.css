@@ -1280,7 +1280,7 @@ body {
   transform: scale(0.9) !important;
 }
 
-/* 🔘 画面最下部モード切り替えトグルバー */
+/* 🔘 画面最下部モード切り替えトグルバー（2行表示） */
 .mode-toggle-bar {
   position: sticky;
   bottom: 0;
@@ -1289,19 +1289,28 @@ body {
   width: 100%;
   z-index: 10000;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 0.7rem 1rem;
   font-family: var(--font);
-  font-size: 0.82rem;
-  font-weight: 700;
   color: #ffffff;
-  letter-spacing: 0.01em;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   transition: background 0.25s ease, box-shadow 0.25s ease;
   flex-shrink: 0;
+}
+.mode-toggle-bar .toggle-line1 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.mode-toggle-bar .toggle-line2 {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.85;
+  line-height: 1.5;
 }
 .mode-toggle-bar:active {
   filter: brightness(0.85);

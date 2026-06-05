@@ -1214,13 +1214,16 @@ function createArticle(noTransition = false) {
     order: Date.now()
   }).catch(err => console.error(err));
 
+  // 新規文書生成時は自動的に編集モードへ切り替えるフラグをセット
+  state.pendingAutoEditMode = true;
+
   if (noTransition) {
     // 一覧を経由せず、トランジションのディレイも完全にバイパスして即座にエディターを表示
     listeners.forEach(fn => fn());
     listeners = [];
     if (saveTimer) clearTimeout(saveTimer);
     navHistory.push({ screen: state.screen, categoryId: state.categoryId, articleId: state.articleId });
-    state = { screen: 'editor', categoryId: state.categoryId, articleId: newKey, uid: state.uid };
+    state = { screen: 'editor', categoryId: state.categoryId, articleId: newKey, uid: state.uid, pendingAutoEditMode: true };
     
     const appEl = document.getElementById('app');
     appEl.classList.remove('visible');
@@ -1291,7 +1294,7 @@ function renderEditor(container) {
         data-placeholder="1行目がタイトルになります
 
 2行目から本文を書いてください…"></div>
-      <div class="mode-toggle-bar mode-view" id="btnModeToggle">【閲覧モード】左右フリップと3つのアイコンが使えます。</div>
+      <div class="mode-toggle-bar mode-view" id="btnModeToggle"><span class="toggle-line1">左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span></div>
       <input type="file" id="fileInput" style="display: none;" multiple />
     </div>`;
 
@@ -1305,15 +1308,17 @@ function renderEditor(container) {
     if (!editor || !toggleBar) return;
 
     if (mode === 'edit') {
-      editor.setAttribute('contenteditable', 'true');
-      toggleBar.textContent = '【編集モード】文字入力、範囲指定によるコピペが使えます。';
+      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ有効化
       toggleBar.className = 'mode-toggle-bar mode-edit';
+      toggleBar.innerHTML = '<span class="toggle-line1">文字入力、範囲指定、コピペが使えます。</span><span class="toggle-line2">左右フリップと各種アイコンが使えません。</span>';
+      editor.setAttribute('contenteditable', 'true');
       editor.focus();
       cleanupAllSwipedParagraphs(editor);
     } else {
-      editor.setAttribute('contenteditable', 'false');
-      toggleBar.textContent = '【閲覧モード】左右フリップと3つのアイコンが使えます。';
+      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ無効化
       toggleBar.className = 'mode-toggle-bar mode-view';
+      toggleBar.innerHTML = '<span class="toggle-line1">左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span>';
+      editor.setAttribute('contenteditable', 'false');
       editor.blur();
       // 挿入マーカーをリセット
       const marker = editor.querySelector('.paste-insert-line');
@@ -1341,9 +1346,14 @@ function renderEditor(container) {
     };
   }
 
-  // 初期化時はデフォルトで閲覧モードにする
+  // 初期化時のモード設定（新規文書の場合は自動で編集モードに切り替える）
   setTimeout(() => {
-    setEditorMode('view');
+    if (state.pendingAutoEditMode) {
+      state.pendingAutoEditMode = false;
+      setEditorMode('edit');
+    } else {
+      setEditorMode('view');
+    }
   }, 50);
   document.getElementById('btnDel').onclick    = deleteArticle;
 
@@ -2238,24 +2248,9 @@ function initializeNativeParagraphActions(editor) {
         }
 
         if (p && p.tagName === 'P') {
-          // ガード：range.startContainer が p の末尾を指しており、次の段落 nextP が存在する場合、
-          // キャレットが前の段落の末尾に誤吸着しているケースを汎用的に補正する。
-          // （全文字・全記号で発生するため、特定の記号チェックを撤去し汎用化）
-          const nextP = p.nextElementSibling;
-          if (nextP && nextP.tagName === 'P') {
-            let isAtEnd = false;
-            if (range.startContainer.nodeType === Node.TEXT_NODE) {
-              isAtEnd = (range.startOffset === range.startContainer.textContent.length);
-            } else {
-              isAtEnd = (range.startOffset === p.childNodes.length);
-            }
-            // 末尾にいて、かつ次の段落にテキストが存在する場合は補正
-            if (isAtEnd && nextP.textContent.length > 0) {
-              p = nextP;
-              range.setStart(nextP, 0);
-              range.setEnd(nextP, 0);
-            }
-          }
+          // 注意: 以前は「キャレットが段落末尾にいる時に次の段落に補正する」ガード処理があったが、
+          // 正常な段落末尾でのEnter操作（空行を挿入する操作）を妨害していたため完全に削除。
+          // 根本原因（oninputでのDOM変更による段落マージ）は既に修正済み。
           // キャレットより前のコンテンツと後ろのコンテンツを分割抽出
           const leftRange = document.createRange();
           leftRange.setStart(p, 0);
