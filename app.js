@@ -1267,6 +1267,12 @@ function renderEditor(container) {
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
             </svg>
           </button>
+          <button class="btn-icon" id="btnPasteCancel" title="貼り付けキャンセル" style="display: none; background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); width: 42px; height: 42px; margin-right: 0.35rem; border-radius: 12px; color: var(--danger); transition: transform 0.2s; align-items: center; justify-content: center;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="display: block;">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
           <button class="btn-icon" id="btnAttach" title="画像を添付" style="margin-right: 0.35rem;">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="display: block;">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -1285,7 +1291,7 @@ function renderEditor(container) {
         data-placeholder="1行目がタイトルになります
 
 2行目から本文を書いてください…"></div>
-      <button class="fab-mode-toggle mode-view" id="btnModeToggle" title="モード切り替え">✏️ 編集する</button>
+      <div class="mode-toggle-bar mode-view" id="btnModeToggle">【閲覧モード】左右フリップと3つのアイコンが使えます。</div>
       <input type="file" id="fileInput" style="display: none;" multiple />
     </div>`;
 
@@ -1295,19 +1301,19 @@ function renderEditor(container) {
   function setEditorMode(mode) {
     state.editorMode = mode;
     const editor = document.getElementById('edContent');
-    const toggleBtn = document.getElementById('btnModeToggle');
-    if (!editor || !toggleBtn) return;
+    const toggleBar = document.getElementById('btnModeToggle');
+    if (!editor || !toggleBar) return;
 
     if (mode === 'edit') {
       editor.setAttribute('contenteditable', 'true');
-      toggleBtn.innerHTML = '👁️ 完了';
-      toggleBtn.className = 'fab-mode-toggle mode-edit';
+      toggleBar.textContent = '【編集モード】文字入力、範囲指定によるコピペが使えます。';
+      toggleBar.className = 'mode-toggle-bar mode-edit';
       editor.focus();
       cleanupAllSwipedParagraphs(editor);
     } else {
       editor.setAttribute('contenteditable', 'false');
-      toggleBtn.innerHTML = '✏️ 編集する';
-      toggleBtn.className = 'fab-mode-toggle mode-view';
+      toggleBar.textContent = '【閲覧モード】左右フリップと3つのアイコンが使えます。';
+      toggleBar.className = 'mode-toggle-bar mode-view';
       editor.blur();
       // 挿入マーカーをリセット
       const marker = editor.querySelector('.paste-insert-line');
@@ -1340,6 +1346,17 @@ function renderEditor(container) {
     setEditorMode('view');
   }, 50);
   document.getElementById('btnDel').onclick    = deleteArticle;
+
+  // 貼り付けキャンセルボタン
+  const pasteCancelBtn = document.getElementById('btnPasteCancel');
+  if (pasteCancelBtn) {
+    pasteCancelBtn.onclick = () => {
+      window.globalCutParagraphs = null;
+      removePasteMarker();
+      updatePasteButtonState();
+      showToast('貼り付けをキャンセルしました');
+    };
+  }
 
   const fileInput = document.getElementById('fileInput');
   const btnAttach = document.getElementById('btnAttach');
@@ -1717,8 +1734,6 @@ function renderEditor(container) {
     // 自動保存（1秒デバウンス）
     editor.oninput = () => {
       if (isComposing) return;
-      // 太陽マーク「☀︎」などのバグを誘発する見えない文字を除去
-      cleanupInvalidUnicodeCharacters(editor);
 
       if (status) { status.textContent = '編集中…'; status.className = 'save-status editing'; }
       clearTimeout(saveTimer);
@@ -2127,8 +2142,7 @@ function initializeNativeParagraphActions(editor) {
   });
   editor.addEventListener('compositionend', () => {
     isComposing = false;
-    // 確定時にクリーンアップと正規化を実行
-    cleanupInvalidUnicodeCharacters(editor);
+    // 確定時に正規化を実行（DOMを直接変更しない。保存時にgetCleanEditorHTML内でクリーンアップする）
     normalizeEditorHTML(editor);
     editor.dispatchEvent(new Event('input'));
   });
@@ -2224,18 +2238,19 @@ function initializeNativeParagraphActions(editor) {
         }
 
         if (p && p.tagName === 'P') {
-          // ガード：もし range.startContainer が p の末尾（または末尾付近）を指しており、
-          // かつ次の段落 nextP が存在し、その nextP の先頭文字が特定の記号（⭕など）や文字である場合、
-          // キャレットが前の段落の末尾に誤吸着していると判定して補正する。
-          const nextP = p.nextSibling;
+          // ガード：range.startContainer が p の末尾を指しており、次の段落 nextP が存在する場合、
+          // キャレットが前の段落の末尾に誤吸着しているケースを汎用的に補正する。
+          // （全文字・全記号で発生するため、特定の記号チェックを撤去し汎用化）
+          const nextP = p.nextElementSibling;
           if (nextP && nextP.tagName === 'P') {
             let isAtEnd = false;
             if (range.startContainer.nodeType === Node.TEXT_NODE) {
-              isAtEnd = (range.startOffset === range.startContainer.length);
+              isAtEnd = (range.startOffset === range.startContainer.textContent.length);
             } else {
               isAtEnd = (range.startOffset === p.childNodes.length);
             }
-            if (isAtEnd && (nextP.textContent.startsWith('⭕') || nextP.textContent.startsWith('☀︎'))) {
+            // 末尾にいて、かつ次の段落にテキストが存在する場合は補正
+            if (isAtEnd && nextP.textContent.length > 0) {
               p = nextP;
               range.setStart(nextP, 0);
               range.setEnd(nextP, 0);
@@ -2301,8 +2316,7 @@ function initializeNativeParagraphActions(editor) {
           sel.removeAllRanges();
           sel.addRange(newRange);
 
-          // 正規化と自動クリーンアップの実行
-          cleanupInvalidUnicodeCharacters(editor);
+          // 正規化の実行（クリーンアップはDOMを壊すため保存時のみ実行）
           normalizeEditorHTML(editor);
           editor.dispatchEvent(new Event('input'));
 
@@ -2459,6 +2473,9 @@ function getCleanEditorHTML(editor) {
   if (!editor) return '';
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = editor.innerHTML;
+  
+  // 異体字セレクタやゼロ幅スペースを保存用HTMLから除去（エディタDOMは触らない）
+  removeInvalidUnicodeFromNode(tempDiv);
   
   const children = Array.from(tempDiv.children);
   children.forEach(child => {
