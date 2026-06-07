@@ -1330,6 +1330,8 @@ function renderEditor(container) {
       editor.dispatchEvent(new Event('input'));
     }
   }
+  // initializeNativeParagraphActions等の外部関数から呼べるように登録
+  window._setEditorMode = setEditorMode;
 
   const modeBtn = document.getElementById('btnModeToggle');
   if (modeBtn) {
@@ -2339,7 +2341,7 @@ function initializeNativeParagraphActions(editor) {
           rightP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
           // Enter後は閲覧モードに自動切替（仕様に従い）
-          setEditorMode('view');
+          if (typeof window._setEditorMode === 'function') window._setEditorMode('view');
         }
       }
     }
@@ -2766,7 +2768,7 @@ function pasteCutParagraphs(editor, targetP = null, location = 'after') {
   updatePasteButtonState();
   
   // 貼り付け完了後は閲覧モードに自動切替
-  setEditorMode('view');
+  if (typeof window._setEditorMode === 'function') window._setEditorMode('view');
   
   showToast("段落を貼り付けました");
 }
