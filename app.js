@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 //  ハウツー解説 v2 – app.js
 //  Firebase Realtime Database (CDN compat)
 // ============================================
@@ -2981,7 +2981,6 @@ function showPurchasePrompt() {
 }
 
 // ── 起動と認証の監視 ────────────────────────────────────
-let authInitialized = false;
 window.addEventListener('DOMContentLoaded', () => {
   // 🔍 貼られた画像をタップした際の拡大表示（ライトボックス）イベント
   document.body.addEventListener('click', e => {
@@ -2995,10 +2994,6 @@ window.addEventListener('DOMContentLoaded', () => {
   app.classList.add('visible');
 
   firebase.auth().onAuthStateChanged(async (user) => {
-    // 起動時の初回呼び出しのみ画面遷移を実行（2回表示防止）
-    if (authInitialized) return;
-    authInitialized = true;
-
     if (user) {
       // ログイン済み — 購入状態を読み取り
       state.uid = user.uid;
