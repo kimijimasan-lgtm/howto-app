@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 //  ハウツー解説 v2 – app.js
 //  Firebase Realtime Database (CDN compat)
 // ============================================
@@ -206,13 +206,10 @@ function goTo(screen, categoryId = null, articleId = null, skipSave = false) {
 
   setTimeout(() => {
     app.innerHTML = '';
-    if (!state.uid) {
-      renderLogin(app);
-    } else {
-      if (screen === 'home')     renderHome(app);
-      if (screen === 'category') renderCategory(app);
-      if (screen === 'editor')   renderEditor(app);
-    }
+    if (screen === 'login')    renderLogin(app);
+    else if (screen === 'home')     renderHome(app);
+    else if (screen === 'category') renderCategory(app);
+    else if (screen === 'editor')   renderEditor(app);
     app.classList.add('visible');
   }, 180);
 }
@@ -1352,22 +1349,25 @@ function renderEditor(container) {
   }
 
   // 閲覧モード中にエディタ本文をタップ → 編集モードに自動切替してカーソル点滅
-  editor.addEventListener('click', (e) => {
-    if (state.editorMode !== 'view') return;
-    // アイコンやボタンのタップは除外
-    if (e.target.closest('button') || e.target.closest('.btn-icon')) return;
-    setEditorMode('edit');
-    // タップ位置にカーソルを置くためフォーカス後にカーソル位置を復元
-    editor.focus();
-  });
+  const editorEl = document.getElementById('edContent');
+  if (editorEl) {
+    editorEl.addEventListener('click', (e) => {
+      if (state.editorMode !== 'view') return;
+      // アイコンやボタンのタップは除外
+      if (e.target.closest('button') || e.target.closest('.btn-icon')) return;
+      setEditorMode('edit');
+      editorEl.focus();
+    });
+  }
 
   // 初期化時のモード設定（新規文書の場合は自動で編集モードに切り替える）
   setTimeout(() => {
+    const edEl = document.getElementById('edContent');
     if (state.pendingAutoEditMode) {
       state.pendingAutoEditMode = false;
       setEditorMode('edit');
       // 新規カード作成時はカーソルを点滅させる
-      editor.focus();
+      if (edEl) edEl.focus();
     } else {
       setEditorMode('view');
     }
@@ -2702,6 +2702,7 @@ function pasteCutParagraphs(editor, targetP = null, location = 'after') {
   const insertedElements = [];
   const parentNode = editor;
   
+
   if (parentP && parentP.tagName === 'P') {
     let refNode = parentP;
     window.globalCutParagraphs.forEach((html, idx) => {
@@ -2994,8 +2995,8 @@ window.addEventListener('DOMContentLoaded', () => {
   app.classList.add('visible');
 
   firebase.auth().onAuthStateChanged(async (user) => {
-    // ログイン画面2回表示バグの修正：初回のみ画面遷移を実行
-    if (authInitialized && !user) return;
+    // 起動時の初回呼び出しのみ画面遷移を実行（2回表示防止）
+    if (authInitialized) return;
     authInitialized = true;
 
     if (user) {
