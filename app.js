@@ -1364,12 +1364,12 @@ function renderEditor(container) {
 
   // 初期化時のモード設定（新規文書の場合は自動で編集モードに切り替える）
   setTimeout(() => {
-    const edEl = document.getElementById('edContent');
     if (state.pendingAutoEditMode) {
       state.pendingAutoEditMode = false;
       setEditorMode('edit');
-      // 新規カード作成時はカーソルを点滅させる
-      if (edEl) edEl.focus();
+      // プレースホルダーはFirebaseデータ読み込み後に挙動
+      // (isNewCardフラグをセットしておく)
+      state._isNewCard = true;
     } else {
       setEditorMode('view');
     }
@@ -1757,7 +1757,29 @@ function renderEditor(container) {
     }
 
     if (status) { status.textContent = '保存済み ✓'; status.className = 'save-status saved'; }
-    editor.focus();
+    
+    // 新規カード作成時はプレースホルダーを表示しフォーカス
+    if (state._isNewCard) {
+      state._isNewCard = false;
+      const raw2 = snap.val()?.content || '';
+      if (!raw2 || raw2.trim() === '' || raw2 === '<p><br></p>') {
+        // 新規カードのみ: プレースホルダーテキストを表示（Firebaseには保存しない）
+        editor.innerHTML = '<p>1行目がタイトルになります</p><p>2行目から本文を書いてください…</p>';
+      }
+      // 1行目の先頭にカーソルを配置
+      const firstP = editor.querySelector('p');
+      if (firstP && firstP.firstChild) {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(firstP.firstChild, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      editor.focus();
+    } else {
+      editor.focus();
+    }
     initializeNativeParagraphActions(editor);
 
     // 自動保存（1秒デバウンス）
@@ -2339,9 +2361,7 @@ function initializeNativeParagraphActions(editor) {
 
           // 改行した要素が見えるようにスクロール
           rightP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-          // Enter後は閲覧モードに自動切替（仕様に従い）
-          if (typeof window._setEditorMode === 'function') window._setEditorMode('view');
+          // → Enter後は編集モードのまま継続（閲覧モード自動切替は废止）
         }
       }
     }
