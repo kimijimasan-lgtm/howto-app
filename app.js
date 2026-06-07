@@ -1318,20 +1318,15 @@ function renderEditor(container) {
     if (!editor || !toggleBar) return;
 
     if (mode === 'edit') {
-      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ有効化（focusは呼ばない）
       toggleBar.className = 'mode-toggle-bar mode-edit';
-      toggleBar.innerHTML = '<span class="toggle-line1">【編集モード】文字入力、範囲指定、コピペが使えます。</span><span class="toggle-line2">左右フリップと各種アイコンが使えません。</span>';
+      toggleBar.innerHTML = '<span class="toggle-line1">【編集モード】文字入力、範囲指定、コピペが使えます。</span><span class="toggle-line2">一部のアイコンが使えません。</span>';
       editor.setAttribute('contenteditable', 'true');
-      // editor.focus() を呼ばないことで、モード切替直後にキーボードや編集マークが表示されないようにする。
-      // ユーザーが実際にテキストをタップした時に初めてフォーカスが当たる。
       cleanupAllSwipedParagraphs(editor);
     } else {
-      // 描画順序: 1.バー状態変更 → 2.バー表示更新 → 3.エディタ無効化
       toggleBar.className = 'mode-toggle-bar mode-view';
       toggleBar.innerHTML = '<span class="toggle-line1">【閲覧モード】左右フリップと各種アイコンが使えます。</span><span class="toggle-line2">文字入力、範囲指定が使えません。</span>';
       editor.setAttribute('contenteditable', 'false');
       editor.blur();
-      // 挿入マーカーをリセット
       const marker = editor.querySelector('.paste-insert-line');
       if (marker) marker.remove();
       normalizeEditorHTML(editor);
@@ -1344,7 +1339,6 @@ function renderEditor(container) {
     modeBtn.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      // ペーストバッファが存在する場合はモード切り替えをブロック
       if (window.globalCutParagraphs && window.globalCutParagraphs.length > 0 && state.editorMode === 'view') {
         showToast("ペースト先を選択するか、ペーストを完了してください");
         return;
@@ -1357,11 +1351,23 @@ function renderEditor(container) {
     };
   }
 
+  // 閲覧モード中にエディタ本文をタップ → 編集モードに自動切替してカーソル点滅
+  editor.addEventListener('click', (e) => {
+    if (state.editorMode !== 'view') return;
+    // アイコンやボタンのタップは除外
+    if (e.target.closest('button') || e.target.closest('.btn-icon')) return;
+    setEditorMode('edit');
+    // タップ位置にカーソルを置くためフォーカス後にカーソル位置を復元
+    editor.focus();
+  });
+
   // 初期化時のモード設定（新規文書の場合は自動で編集モードに切り替える）
   setTimeout(() => {
     if (state.pendingAutoEditMode) {
       state.pendingAutoEditMode = false;
       setEditorMode('edit');
+      // 新規カード作成時はカーソルを点滅させる
+      editor.focus();
     } else {
       setEditorMode('view');
     }
@@ -2322,15 +2328,18 @@ function initializeNativeParagraphActions(editor) {
           sel.removeAllRanges();
           sel.addRange(newRange);
 
-          // ✅ 正規化(normalizeEditorHTML)はEnter直後に呼ばない！
-          // normalizeEditorHTMLがeditor.innerHTMLを再設定するとDOMが全再構築され、
-          // 上記で設定したカーソル位置（sel.addRange）が完全に破壊される。
-          // これが5回にわたる「Enter後にカーソルが前の段落に飛ぶ」バグの真の根本原因。
-          // 段落分割は上記のカスタムロジックで正しい<p>構造を生成済みなので、直後の正規化は不要。
+          // Enter直後はnormalizeEditorHTMLを呼ばない（カーソル位置が破壊されるため）
+          // scrollLockTimerが「Enter後のカーソル位置」を破壊しないよう、フラグをセット
+          window._isEnterJustPressed = true;
+          setTimeout(() => { window._isEnterJustPressed = false; }, 300);
+
           editor.dispatchEvent(new Event('input'));
 
           // 改行した要素が見えるようにスクロール
           rightP.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+          // Enter後は閲覧モードに自動切替（仕様に従い）
+          setEditorMode('view');
         }
       }
     }
@@ -2340,6 +2349,9 @@ function initializeNativeParagraphActions(editor) {
   let scrollLockTimer = null;
   editor.addEventListener('focusin', () => {
     cleanupAllSwipedParagraphs(editor);
+
+    // Enter直後はscrollLockを実行しない（カーソル位置が引き戻されるため）
+    if (window._isEnterJustPressed) return;
 
     const lockScroll = () => {
       window.scrollTo(0, 0);
@@ -2352,13 +2364,13 @@ function initializeNativeParagraphActions(editor) {
     // 即座に実行
     lockScroll();
     
-    // その後1.5秒間、50ms間隔で画面スクロールを強制リセット（ブラウザのキーボード表示による押し上げに対抗）
+    // 5回（250ms）だけリセット。長時間繰り返すとタップ位置が見えなくなる問題を防ぐ。
     if (scrollLockTimer) clearInterval(scrollLockTimer);
     let count = 0;
     scrollLockTimer = setInterval(() => {
       lockScroll();
       count++;
-      if (count > 30) { // 30回 = 1.5秒
+      if (count >= 5) {
         clearInterval(scrollLockTimer);
         scrollLockTimer = null;
       }
@@ -2667,6 +2679,8 @@ function showUndoToast(editor) {
 // カットした段落的貼り付け処理
 function pasteCutParagraphs(editor, targetP = null, location = 'after') {
   if (!window.globalCutParagraphs || window.globalCutParagraphs.length === 0) return;
+  // ガイドメッセージ(.paste-guide-message)がFirebaseに保存・表示されるバグを防ぐ
+  removePasteMarker();
   
   let parentP = targetP;
   let refLocation = location;
@@ -2749,6 +2763,9 @@ function pasteCutParagraphs(editor, targetP = null, location = 'after') {
   // ペースト完了後にメモリをクリア
   window.globalCutParagraphs = null;
   updatePasteButtonState();
+  
+  // 貼り付け完了後は閲覧モードに自動切替
+  setEditorMode('view');
   
   showToast("段落を貼り付けました");
 }
@@ -3033,13 +3050,15 @@ async function handleAttachedImage(file, editor) {
         
         const img = document.createElement('img');
         img.src = compressedBase64;
-        img.className = 'inserted-img';
-        img.contentEditable = 'false'; // リサイズコントロール等を完全に非表示にするための決定打
+        img.className = 'inserted-img inserted-img-highlight';
+        img.contentEditable = 'false';
         
         const pImg = document.createElement('p');
         pImg.appendChild(img);
         
         insertNodeAtCursor(pImg, editor);
+        // 3秒後に黄色枚を除去
+        setTimeout(() => { img.classList.remove('inserted-img-highlight'); }, 3000);
         resolve();
       };
       tempImg.src = base64Src;
