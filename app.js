@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 //  ハウツー解説 v2 – app.js
 //  Firebase Realtime Database (CDN compat)
 // ============================================
@@ -655,6 +655,16 @@ function showCategoryModal(catId = null, currentName = '', currentColor = null) 
     if (catId) {
       await db.ref(`users/${state.uid}/categories/${catId}`).update({ name, color: selectedGrad });
     } else {
+      // 無料ユーザーのパネル上限チェック（3個まで）
+      if (!catId && !state.isPremium) {
+        const snapshot = await db.ref(`users/${state.uid}/categories`).once('value');
+        const currentCount = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
+        if (currentCount >= 3) {
+          close();
+          showPurchasePrompt();
+          return;
+        }
+      }
       const newCatRef = db.ref(`users/${state.uid}/categories`).push();
       const newCatId = newCatRef.key;
       // 1. カテゴリ自体を作成
@@ -2803,7 +2813,7 @@ function showQRCodeModal() {
   overlay.onclick = e => { if (e.target === overlay || e.target.id === 'qrModalOverlay') close(); };
 }
 
-// ── SCREEN: ログイン画面（ガラスモーフィズム） ──────────
+// ── SCREEN: ログイン画面（メール・パスワード認証） ──────────
 function renderLogin(container) {
   container.innerHTML = `
     <div class="screen-login">
@@ -2817,70 +2827,113 @@ function renderLogin(container) {
         </div>
         <h1 class="login-title">PCスマホ連動メモ</h1>
         <p class="login-desc">
-          カテゴリ別にメモを美しく管理。<br>
-          ログインすれば、PCとスマホで瞬時に完全同期されます。
+          このアプリを使用するにはログインが必要です
         </p>
-        
-        <button class="login-btn btn-google" id="btnGoogleLogin">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="display: block;">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-          </svg>
-          Google でログイン
-        </button>
-        
-        <button class="login-btn btn-guest" id="btnGuestLogin">
-          ゲストとして一時的に開始
-        </button>
+        <div class="login-error" id="loginError" style="display:none;"></div>
+        <input type="email" class="login-input" id="loginEmail" placeholder="メールアドレス" autocomplete="email" />
+        <input type="password" class="login-input" id="loginPassword" placeholder="パスワード" autocomplete="current-password" />
+        <button class="login-btn btn-login-primary" id="btnLogin">ログイン</button>
+        <button class="login-btn btn-login-secondary" id="btnRegister">新規登録</button>
       </div>
     </div>
   `;
 
-  // Googleログインイベント
-  document.getElementById('btnGoogleLogin').onclick = async () => {
+  const emailInput = document.getElementById('loginEmail');
+  const passInput = document.getElementById('loginPassword');
+  const errorDiv = document.getElementById('loginError');
+
+  function showLoginError(msg) {
+    errorDiv.textContent = msg;
+    errorDiv.style.display = 'block';
+  }
+
+  function getFirebaseAuthErrorMessage(code) {
+    const messages = {
+      'auth/invalid-email': 'メールアドレスの形式が正しくありません。',
+      'auth/user-disabled': 'このアカウントは無効化されています。',
+      'auth/user-not-found': 'アカウントが見つかりません。新規登録してください。',
+      'auth/wrong-password': 'パスワードが間違っています。',
+      'auth/invalid-credential': 'メールアドレスまたはパスワードが間違っています。',
+      'auth/email-already-in-use': 'このメールアドレスは既に登録されています。',
+      'auth/weak-password': 'パスワードは6文字以上にしてください。',
+      'auth/too-many-requests': 'ログイン試行回数が多すぎます。しばらく待ってから再試行してください。',
+      'auth/network-request-failed': 'ネットワークエラーです。接続を確認してください。',
+      'auth/operation-not-allowed': '\n\n💡 Firebaseコンソールで「メール/パスワード認証」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➤ Authentication ➤ Sign-in method ➤「メール/パスワード」を有効にしてください。',
+    };
+    return messages[code] || 'エラーが発生しました。もう一度お試しください。';
+  }
+
+  // ログインボタン
+  document.getElementById('btnLogin').onclick = async () => {
+    errorDiv.style.display = 'none';
+    const email = emailInput.value.trim();
+    const pass = passInput.value;
+    if (!email || !pass) {
+      showLoginError('メールアドレスとパスワードを入力してください。');
+      return;
+    }
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      // サードパーティCookieのブラウザ規制による無限ループを回避するため、まずはポップアップ方式を優先します
-      await firebase.auth().signInWithPopup(provider);
+      await firebase.auth().signInWithEmailAndPassword(email, pass);
     } catch (err) {
-      console.error("Google Sign-In Error:", err);
-      // ポップアップがブラウザにブロックされた場合は、自動的にリダイレクト方式へ切り替えます
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
-        try {
-          await firebase.auth().signInWithRedirect(provider);
-        } catch (redirErr) {
-          alert("ログイン画面の起動に失敗しました: " + redirErr.message);
-        }
-      } else {
-        let friendlyMsg = err.message;
-        if (err.code === 'auth/operation-not-allowed') {
-          friendlyMsg = "\n\n💡 Firebaseコンソールで「Googleログイン」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「Google」を追加して有効（オン）に設定してください。";
-        } else if (err.code === 'auth/unauthorized-domain') {
-          friendlyMsg = "\n\n💡 このドメインがFirebaseに承認されていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ 設定 ➔「承認済みドメイン」に「kimijimasan-lgtm.github.io」を追加してください。";
-        }
-        alert("Googleログインに失敗しました: " + friendlyMsg);
-      }
+      console.error('Login Error:', err);
+      showLoginError(getFirebaseAuthErrorMessage(err.code));
     }
   };
 
-  // ゲストログインイベント
-  document.getElementById('btnGuestLogin').onclick = async () => {
-    try {
-      await firebase.auth().signInAnonymously();
-    } catch (err) {
-      console.error("Guest Sign-In Error:", err);
-      let friendlyMsg = err.message;
-      if (err.code === 'auth/operation-not-allowed') {
-        friendlyMsg = "\n\n💡 Firebaseコンソールで「匿名ログイン（Anonymous）」が有効になっていません。\n\n【解決方法】\nFirebaseコンソール ➔ Authentication ➔ Sign-in method ➔「匿名」を追加して有効（オン）に設定してください。";
-      }
-      alert("ゲストログインに失敗しました: " + friendlyMsg);
+  // 新規登録ボタン
+  document.getElementById('btnRegister').onclick = async () => {
+    errorDiv.style.display = 'none';
+    const email = emailInput.value.trim();
+    const pass = passInput.value;
+    if (!email || !pass) {
+      showLoginError('メールアドレスとパスワードを入力してください。');
+      return;
     }
+    if (pass.length < 6) {
+      showLoginError('パスワードは6文字以上にしてください。');
+      return;
+    }
+    try {
+      await firebase.auth().createUserWithEmailAndPassword(email, pass);
+    } catch (err) {
+      console.error('Register Error:', err);
+      showLoginError(getFirebaseAuthErrorMessage(err.code));
+    }
+  };
+
+  // Enterキーでログイン
+  passInput.onkeydown = (e) => {
+    if (e.key === 'Enter') document.getElementById('btnLogin').click();
+  };
+}
+
+// 購入促進ダイアログ（無料ユーザーがパネル4個目を作ろうとした時）
+function showPurchasePrompt() {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="modal-overlay" id="purchaseModal" style="display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);">
+      <div style="background:#1a1d24;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:2rem 1.5rem;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+        <div style="font-size:2.5rem;margin-bottom:0.75rem;">🔒</div>
+        <h2 style="color:#fff;font-size:1.1rem;margin-bottom:0.5rem;font-weight:800;">全機能を使うには¥100が必要です</h2>
+        <p style="color:rgba(255,255,255,0.6);font-size:0.82rem;line-height:1.5;margin-bottom:1.5rem;">無料プランではパネルを3個まで作成できます。<br>購入するとパネル無制限で全機能が使えます。</p>
+        <button id="btnPurchase" style="width:100%;padding:0.85rem;border:none;border-radius:14px;background:linear-gradient(135deg,#f97316,#ec4899);color:#fff;font-size:0.95rem;font-weight:800;cursor:pointer;margin-bottom:0.5rem;font-family:var(--font);transition:transform 0.15s;">¥100で購入する</button>
+        <button id="btnPurchaseClose" style="width:100%;padding:0.7rem;border:none;border-radius:14px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.7);font-size:0.85rem;cursor:pointer;font-family:var(--font);">閉じる</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('btnPurchaseClose').onclick = () => { root.innerHTML = ''; };
+  document.getElementById('purchaseModal').onclick = (e) => { if (e.target.id === 'purchaseModal') root.innerHTML = ''; };
+  document.getElementById('btnPurchase').onclick = () => {
+    // Stripe Payment Link へ遷移（後で実際のURLに差し替え）
+    const paymentUrl = 'https://buy.stripe.com/YOUR_PAYMENT_LINK_ID';
+    window.open(paymentUrl, '_blank');
+    root.innerHTML = '';
+    showToast('決済ページを開きました。購入完了後、アプリを再読み込みしてください。');
   };
 }
 
 // ── 起動と認証の監視 ────────────────────────────────────
+let authInitialized = false;
 window.addEventListener('DOMContentLoaded', () => {
   // 🔍 貼られた画像をタップした際の拡大表示（ライトボックス）イベント
   document.body.addEventListener('click', e => {
@@ -2893,14 +2946,25 @@ window.addEventListener('DOMContentLoaded', () => {
   app.innerHTML = '<div class="screen-login"><div class="loading-spinner">認証状態を確認中…</div></div>';
   app.classList.add('visible');
 
-  firebase.auth().onAuthStateChanged(user => {
+  firebase.auth().onAuthStateChanged(async (user) => {
+    // ログイン画面2回表示バグの修正：初回のみ画面遷移を実行
+    if (authInitialized && !user) return;
+    authInitialized = true;
+
     if (user) {
-      // ログイン済み
+      // ログイン済み — 購入状態を読み取り
       state.uid = user.uid;
+      try {
+        const premSnap = await db.ref(`users/${user.uid}/isPremium`).once('value');
+        state.isPremium = premSnap.val() === true;
+      } catch (e) {
+        state.isPremium = false;
+      }
       goTo('home');
     } else {
       // 未ログイン
       state.uid = null;
+      state.isPremium = false;
       goTo('login');
     }
   });
