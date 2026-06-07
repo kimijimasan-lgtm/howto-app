@@ -948,11 +948,97 @@ body {
   border: none;
 }
 
+/* ログイン入力フィールド */
+.login-input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  outline: none;
+  margin-bottom: 0.6rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+.login-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+.login-input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+/* ログインエラー表示 */
+.login-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin-bottom: 0.75rem;
+  text-align: left;
+}
+
+/* ログインボタン（プライマリ） */
+.btn-login-primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  margin-bottom: 0.6rem;
+  margin-top: 0.5rem;
+}
+.btn-login-primary:hover {
+  background: linear-gradient(135deg, #7c7ff7, #9d7af7);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+}
+.btn-login-primary:active {
+  transform: translateY(1px);
+}
+
+/* 新規登録ボタン（セカンダリ） */
+.btn-login-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.btn-login-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+.btn-login-secondary:active {
+  transform: translateY(1px);
+}
+
+/* 区切り線（「または」） */
+.login-divider {
+  display: flex;
+  align-items: center;
+  margin: 1rem 0;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.8rem;
+}
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.login-divider span {
+  padding: 0 0.75rem;
+}
+
+/* Googleログインボタン */
 .btn-google {
   background: #ffffff;
   color: #1f2937;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  margin-bottom: 0.75rem;
 }
 .btn-google:hover {
   background: #f3f4f6;
@@ -960,19 +1046,6 @@ body {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
 .btn-google:active {
-  transform: translateY(1px);
-}
-
-.btn-guest {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.btn-guest:hover {
-  background: rgba(255, 255, 255, 0.12);
-  transform: translateY(-1px);
-}
-.btn-guest:active {
   transform: translateY(1px);
 }
 
