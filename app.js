@@ -484,9 +484,9 @@ function showOnboarding() {
     if (nextBtn) nextBtn.onclick = () => { currentSlide++; render(); };
   }
 
-  render();
   const app = document.getElementById('app');
   (app || document.body).appendChild(overlay);
+  render();
 }
 
 // ============================================
