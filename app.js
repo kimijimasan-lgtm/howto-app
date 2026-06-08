@@ -412,6 +412,83 @@ function stripMarkdownFromDOM(el) {
   });
 }
 
+// ── オンボーディング（初回起動ガイド） ─────────────────────
+function showOnboarding() {
+  const STORAGE_KEY = 'howto-onboarding-done';
+  if (localStorage.getItem(STORAGE_KEY)) return;
+
+  let currentSlide = 0;
+  const slides = [
+    {
+      icon: '📋',
+      title: 'このアプリでできること',
+      items: [
+        'テーマ別カテゴリでメモを整理',
+        'テキスト・画像を自由に記録',
+        '書くたびに自動クラウド保存',
+      ],
+    },
+    {
+      icon: '📱',
+      title: 'スマホだけでも全機能OK',
+      items: [
+        'スマホのみでも全機能が使えます',
+        'PCをお持ちの方はQRコードで同期',
+        'どの端末で書いてもデータは共有',
+      ],
+    },
+  ];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'onboarding-overlay';
+
+  function render() {
+    const s = slides[currentSlide];
+    const isLast = currentSlide === slides.length - 1;
+    overlay.innerHTML = `
+      <div class="onboarding-card">
+        <div class="onboarding-icon">${s.icon}</div>
+        <h2 class="onboarding-title">${s.title}</h2>
+        <ul class="onboarding-list">
+          ${s.items.map(item => `<li>${item}</li>`).join('')}
+        </ul>
+        <div class="onboarding-dots">
+          ${slides.map((_, i) => `<span class="onboarding-dot${i === currentSlide ? ' active' : ''}"></span>`).join('')}
+        </div>
+        <div class="onboarding-actions">
+          ${currentSlide > 0
+            ? `<button class="onboarding-btn-secondary" id="obBack">← 戻る</button>`
+            : `<button class="onboarding-btn-secondary" id="obSkip">スキップ</button>`
+          }
+          ${isLast
+            ? `<button class="onboarding-btn-primary" id="obDone">始める</button>`
+            : `<button class="onboarding-btn-primary" id="obNext">次へ →</button>`
+          }
+        </div>
+      </div>
+    `;
+
+    const done = () => {
+      localStorage.setItem(STORAGE_KEY, '1');
+      overlay.remove();
+    };
+
+    const backBtn = document.getElementById('obBack');
+    const skipBtn = document.getElementById('obSkip');
+    const doneBtn = document.getElementById('obDone');
+    const nextBtn = document.getElementById('obNext');
+
+    if (backBtn) backBtn.onclick = () => { currentSlide--; render(); };
+    if (skipBtn) skipBtn.onclick = done;
+    if (doneBtn) doneBtn.onclick = done;
+    if (nextBtn) nextBtn.onclick = () => { currentSlide++; render(); };
+  }
+
+  render();
+  const app = document.getElementById('app');
+  (app || document.body).appendChild(overlay);
+}
+
 // ============================================
 //  SCREEN A: ホーム（カテゴリグリッド）
 // ============================================
@@ -458,6 +535,8 @@ function renderHome(container) {
   document.getElementById('btnAddCat').onclick = () => showCategoryModal();
   const showQrBtn = document.getElementById('btnShowQR');
   if (showQrBtn) showQrBtn.onclick = () => showQRCodeModal();
+
+  showOnboarding();
 
   const user = firebase.auth().currentUser;
   const isGuest = user && user.isAnonymous;
@@ -1362,14 +1441,18 @@ function renderEditor(container) {
     });
   }
 
+  // 新規カードの場合は Firebase 読み込みより前にフラグをセット
+  // （once('value') がキャッシュから即時返却されるとsetTimeout 50ms より先に来るため、
+  //   setTimeout内でセットするとプレースホルダーが表示されない競合が起きる）
+  if (state.pendingAutoEditMode) {
+    state._isNewCard = true;
+  }
+
   // 初期化時のモード設定（新規文書の場合は自動で編集モードに切り替える）
   setTimeout(() => {
     if (state.pendingAutoEditMode) {
       state.pendingAutoEditMode = false;
       setEditorMode('edit');
-      // プレースホルダーはFirebaseデータ読み込み後に挙動
-      // (isNewCardフラグをセットしておく)
-      state._isNewCard = true;
     } else {
       setEditorMode('view');
     }
@@ -1766,6 +1849,8 @@ function renderEditor(container) {
         // 新規カードのみ: プレースホルダーテキストを表示（Firebaseには保存しない）
         editor.innerHTML = '<p>1行目がタイトルになります</p><p>2行目から本文を書いてください…</p>';
       }
+      // 50ms タイマーより Firebase が先に返った場合でも確実に編集モードにしてカーソルを点滅させる
+      if (window._setEditorMode) window._setEditorMode('edit');
       // 1行目の先頭にカーソルを配置
       const firstP = editor.querySelector('p');
       if (firstP && firstP.firstChild) {
@@ -2193,8 +2278,8 @@ function initializeNativeParagraphActions(editor) {
   });
   editor.addEventListener('compositionend', () => {
     isComposing = false;
-    // 確定時に正規化を実行（DOMを直接変更しない。保存時にgetCleanEditorHTML内でクリーンアップする）
-    normalizeEditorHTML(editor);
+    // IME確定直後はnormalizeEditorHTML()を呼ばない
+    // （editor.innerHTML全置換によりカーソル位置が破壊され、直後のEnter keydownが誤った段落を分割するバグを防止）
     editor.dispatchEvent(new Event('input'));
   });
 
@@ -2276,6 +2361,12 @@ function initializeNativeParagraphActions(editor) {
     // 太陽マーク等の記号に関係なく発生する、Enter改行時の段落統合バグを完全解決するため、
     // ブラウザのデフォルトのEnter改行挙動を阻止し、自前で安全に段落を分割する
     if (e.key === 'Enter') {
+      // IME変換確定中のEnterは段落分割しない
+      // （compositionend後にカーソル位置が破壊された状態でEnterが来ると前段落に文字がくっつくバグを防止）
+      if (isComposing || e.isComposing) {
+        e.preventDefault(); // デフォルトの<br>挿入は阻止しつつ、分割はスキップ
+        return;
+      }
       e.preventDefault(); // デフォルトのEnter改行を阻止
 
       const sel = window.getSelection();
@@ -2349,13 +2440,15 @@ function initializeNativeParagraphActions(editor) {
             newRange.setStart(rightP, 0);
           }
           newRange.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(newRange);
 
-          // Enter直後はnormalizeEditorHTMLを呼ばない（カーソル位置が破壊されるため）
-          // scrollLockTimerが「Enter後のカーソル位置」を破壊しないよう、フラグをセット
+          // sel.addRange の直前にフラグをセットする
+          // （addRange が focusin を発火させることがあり、その時点でフラグが false だと
+          //   lockScroll() が走ってカーソルがトップに飛ぶバグが起きるため）
           window._isEnterJustPressed = true;
           setTimeout(() => { window._isEnterJustPressed = false; }, 300);
+
+          sel.removeAllRanges();
+          sel.addRange(newRange);
 
           editor.dispatchEvent(new Event('input'));
 
@@ -2413,6 +2506,41 @@ function initializeNativeParagraphActions(editor) {
     normalizeEditorHTML(editor);
     editor.dispatchEvent(new Event('input'));
   });
+
+  // ページ全体スクロールによるヘッダー消失を常時防止
+  // （段落数が多い閲覧モードでスクロールするとiOS Safariがwindowごとスクロールしてヘッダーが消えるバグ対策）
+  // window の scroll は防止できないが「スクロールを検知したら即座に0へ戻す」ことでヘッダーを維持する
+  const windowScrollFix = () => {
+    if (window.scrollY !== 0 || window.scrollX !== 0) {
+      window.scrollTo(0, 0);
+    }
+    const app = document.getElementById('app');
+    if (app && app.scrollTop !== 0) app.scrollTop = 0;
+  };
+  window.addEventListener('scroll', windowScrollFix, { passive: true });
+  listeners.push(() => window.removeEventListener('scroll', windowScrollFix));
+
+  // iOS キーボード表示時にカーソル段落が画面外に切れるのを防止
+  // （編集モードで最下部タップ → キーボード出現 → 100dvh が縮小 → editor-content が縮んでカーソルが隠れる問題）
+  if (window.visualViewport) {
+    const handleViewportResize = () => {
+      if (state.editorMode !== 'edit') return;
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const node = sel.getRangeAt(0).commonAncestorContainer;
+      const targetP = (node.nodeType === 3 ? node.parentElement : node).closest('p');
+      if (!targetP || !editor.contains(targetP)) return;
+      setTimeout(() => {
+        const pRect = targetP.getBoundingClientRect();
+        const editorRect = editor.getBoundingClientRect();
+        if (pRect.bottom > editorRect.bottom - 8) {
+          editor.scrollTop += pRect.bottom - editorRect.bottom + 8;
+        }
+      }, 100);
+    };
+    window.visualViewport.addEventListener('resize', handleViewportResize);
+    listeners.push(() => window.visualViewport.removeEventListener('resize', handleViewportResize));
+  }
 
   // エディタ外のクリックで解除
   const outsideClickListener = (e) => {
@@ -3322,11 +3450,12 @@ function setupImageDragAndDrop(editor) {
   const onStart = (e, clientX, clientY, target) => {
     if (target.tagName !== 'IMG' || !target.classList.contains('inserted-img')) return;
 
-    // 長押し保存メニューや標準ドラッグをキャンセルして競合を防止
+    // iOSの長押し「画像を保存」メニューとネイティブDnDを抑止（stopPropagation は不要・段落スワイプを妨げる）
     if (e.cancelable) {
       e.preventDefault();
     }
-    e.stopPropagation();
+    // ※ stopPropagation は削除。スワイプで段落選択したい場合に txStart が記録されなくなるため。
+    // 代わりに onEnd で stopImmediatePropagation を使い、タップ・長押し時だけ段落スワイプを阻止する。
 
     dragTarget = target;
     activeP = target.closest('p');
@@ -3408,7 +3537,12 @@ function setupImageDragAndDrop(editor) {
     }
   };
 
-  const onEnd = () => {
+  const onEnd = (e) => {
+    // 画像にタッチして操作中なら段落スワイプが誤反応しないよう即座に阻止
+    if (dragTarget && e && typeof e.stopImmediatePropagation === 'function') {
+      e.stopImmediatePropagation();
+    }
+
     if (!isDraggingImg) {
       // pressTimer が残っている（＝移動距離が小さく、350ms以内に指が離れた）場合のみタップとみなす
       if (pressTimer && dragTarget) {
@@ -3467,6 +3601,8 @@ function setupImageDragAndDrop(editor) {
   };
 
   // タッチイベントのバインド
+  // capture は使わない（capture+stopPropagation だとスワイプ時に段落スワイプの txStart が記録されず壊れる）
+  // タップ・長押し時の段落スワイプ阻止は onEnd 内の stopImmediatePropagation で行う
   editor.addEventListener('touchstart', e => {
     if (e.touches.length === 1) {
       onStart(e, e.touches[0].clientX, e.touches[0].clientY, e.target);
@@ -3474,8 +3610,19 @@ function setupImageDragAndDrop(editor) {
   }, { passive: false });
 
   editor.addEventListener('touchmove', e => {
-    if (isDraggingImg && e.touches.length === 1) {
-      onMove(e, e.touches[0].clientX, e.touches[0].clientY);
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    if (isDraggingImg) {
+      e.preventDefault();
+      onMove(e, touch.clientX, touch.clientY);
+    } else if (dragTarget) {
+      // 長押し待機中（350ms前）に指が大きく動いたらドラッグをキャンセル（スクロールとの競合防止）
+      if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        dragTarget = null;
+        activeP = null;
+      }
     }
   }, { passive: false });
 
